@@ -1,0 +1,5 @@
+.env
+readperfect.db
+readperfect
+deploy.config
+backups/

@@ -1,0 +1,58 @@
+{{ define "title" }}Create account | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="auth-page">
+  <header class="site-header auth-header">
+    <div class="container header-row">
+      <a class="brand" href="/" aria-label="readperfect home">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <div class="header-actions">
+        <a class="link-button" href="/login">Sign in</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-main">
+    <section class="auth-card">
+      <div class="auth-copy">
+        <p class="eyebrow">Create account</p>
+        <h1>Start your author workspace.</h1>
+        <p class="section-text">Create an account with Google or email and password, then move straight into your private review dashboard.</p>
+      </div>
+
+      {{ if .Flash }}
+        <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      {{ if .GoogleLoginEnabled }}
+        <a class="google-button" href="/auth/google/start">Continue with Google</a>
+        <div class="auth-divider"><span>or continue with email</span></div>
+      {{ end }}
+
+      <form class="auth-form" action="/signup" method="post" novalidate>
+        <input type="hidden" name="next" value="{{ .NextPath }}">
+        <div class="field-stack">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" value="{{ index .Form "name" }}" autocomplete="name">
+          {{ with index .Errors "name" }}<p class="field-error">{{ . }}</p>{{ end }}
+        </div>
+        <div class="field-stack">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" value="{{ index .Form "email" }}" autocomplete="email">
+          {{ with index .Errors "email" }}<p class="field-error">{{ . }}</p>{{ end }}
+        </div>
+        <div class="field-stack">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password">
+          {{ with index .Errors "password" }}<p class="field-error">{{ . }}</p>{{ end }}
+        </div>
+        <button class="primary-button wide-button" type="submit">Create account</button>
+      </form>
+
+      <p class="auth-meta">Already have an account? <a href="/login{{ if .NextPath }}?next={{ .NextPath }}{{ end }}">Sign in</a></p>
+    </section>
+  </main>
+</div>
+{{ end }}

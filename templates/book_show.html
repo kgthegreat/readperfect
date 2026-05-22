@@ -1,0 +1,198 @@
+{{ define "title" }}{{ .Book.Title }} | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/app" aria-label="readperfect dashboard">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/app">Dashboard</a>
+        <a href="/books/new">Add book</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Name }}</span>
+        <form action="/logout" method="post">
+          <button class="quiet-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Book workspace</p>
+          <h1>{{ .Book.Title }}</h1>
+          <p class="section-text">by {{ .Book.AuthorName }}</p>
+          {{ if .Book.Description }}
+            <p class="section-text">{{ .Book.Description }}</p>
+          {{ end }}
+          <div class="book-card-meta">
+            <span class="status-pill">{{ .Book.Status }}</span>
+            {{ if .Book.ISBN }}<span class="muted-meta">ISBN {{ .Book.ISBN }}</span>{{ end }}
+          </div>
+        </div>
+      </section>
+
+      {{ if .Flash }}
+        <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      <section class="workspace-columns">
+        <article class="form-panel">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Author questions</p>
+              <h2>Guide the feedback you want.</h2>
+            </div>
+          </div>
+
+          <form class="book-form" action="/books/{{ .Book.ID }}/questions" method="post" novalidate>
+            <div class="field-stack">
+              <label for="question">Question for reviewers</label>
+              <textarea id="question" name="question" rows="4" placeholder="Did the ending feel earned?"></textarea>
+              {{ with index .Errors "question" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Add question</button>
+            </div>
+          </form>
+
+          {{ if .Questions }}
+            <div class="question-list">
+              {{ range .Questions }}
+                <article class="list-item-card">
+                  <span class="note-type">Question {{ .Position }}</span>
+                  <p>{{ .Question }}</p>
+                </article>
+              {{ end }}
+            </div>
+          {{ else }}
+            <p class="empty-copy">No author questions yet.</p>
+          {{ end }}
+        </article>
+
+        <article class="form-panel">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Reviewer invitations</p>
+              <h2>Invite one reviewer at a time.</h2>
+            </div>
+          </div>
+
+          <form class="book-form" action="/books/{{ .Book.ID }}/invitations" method="post" novalidate>
+            <div class="field-stack">
+              <label for="invite_email">Reviewer email</label>
+              <input id="invite_email" name="email" type="email" placeholder="reader@example.com">
+              {{ with index .Errors "invite_email" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Generate invite link</button>
+            </div>
+          </form>
+
+          {{ if .GeneratedInviteURL }}
+            <div class="invite-result">
+              <p class="section-kicker">Invite link ready</p>
+              <p class="empty-copy">Copy this link and share it with your reviewer.</p>
+              <div class="invite-link-box">{{ .GeneratedInviteURL }}</div>
+            </div>
+          {{ end }}
+
+          {{ if .Invitations }}
+            <div class="question-list">
+              {{ range .Invitations }}
+                <article class="list-item-card">
+                  <div class="list-item-head">
+                    <span class="note-type">{{ .Status }}</span>
+                    <span class="muted-meta">expires {{ .ExpiresAt.Format "02 Jan 2006" }}</span>
+                  </div>
+                  <p>{{ .Email }}</p>
+                </article>
+              {{ end }}
+            </div>
+          {{ else }}
+            <p class="empty-copy">No reviewer invitations yet.</p>
+          {{ end }}
+        </article>
+      </section>
+
+      <section class="form-panel">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Submitted feedback</p>
+            <h2>What reviewers have sent.</h2>
+          </div>
+        </div>
+
+        {{ if .SubmittedFeedback }}
+          <div class="submitted-groups">
+            {{ range .SubmittedFeedback }}
+              <article class="submitted-group">
+                <div class="list-item-head">
+                  <div>
+                    <h3>{{ .ReviewerName }}</h3>
+                    <p class="muted-meta">{{ .ReviewerEmail }}</p>
+                  </div>
+                  <span class="muted-meta">{{ .SubmittedAt.Format "02 Jan 2006 15:04" }}</span>
+                </div>
+                <div class="question-list">
+                  {{ range .Entries }}
+                    <article class="list-item-card submitted-note-card">
+                      <div class="list-item-head">
+                        <span class="note-type">{{ .EntryType }} note</span>
+                        {{ if .PageNumber.Valid }}
+                          <span class="muted-meta">Page {{ .PageNumber.Int64 }}</span>
+                        {{ else if .ChapterLabel.Valid }}
+                          <span class="muted-meta">{{ .ChapterLabel.String }}</span>
+                        {{ end }}
+                      </div>
+                      {{ if .AnchorText.Valid }}
+                        <p class="note-anchor">"{{ .AnchorText.String }}"</p>
+                      {{ end }}
+                      <p>{{ .CommentBody }}</p>
+                      <div class="response-form">
+                        <div class="response-actions">
+                          <form action="/entries/{{ .ID }}/respond" method="post">
+                            <input type="hidden" name="action" value="toggle_reaction">
+                            <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
+                          </form>
+                          <details class="respond-disclosure">
+                            <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>
+                            <form class="compact-response-form" action="/entries/{{ .ID }}/respond" method="post">
+                              <input type="hidden" name="action" value="save_comment">
+                              <div class="field-stack compact-field">
+                                <label for="comment-{{ .ID }}">Reply for the reviewer</label>
+                                <textarea id="comment-{{ .ID }}" name="comment" rows="3">{{ if .AuthorComment.Valid }}{{ .AuthorComment.String }}{{ end }}</textarea>
+                              </div>
+                              <div class="form-actions compact-actions">
+                                <button class="primary-button compact-primary" type="submit">Save comment</button>
+                              </div>
+                            </form>
+                          </details>
+                        </div>
+                        {{ if .AuthorComment.Valid }}
+                          <div class="author-response-note">
+                            <span class="author-response-label">Your reply</span>
+                            <p class="author-comment">{{ .AuthorComment.String }}</p>
+                          </div>
+                        {{ end }}
+                      </div>
+                    </article>
+                  {{ end }}
+                </div>
+              </article>
+            {{ end }}
+          </div>
+        {{ else }}
+          <p class="empty-copy">No submitted feedback yet.</p>
+        {{ end }}
+      </section>
+    </div>
+  </main>
+</div>
+{{ end }}

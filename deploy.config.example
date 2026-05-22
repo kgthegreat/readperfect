@@ -1,0 +1,15 @@
+SSH_HOST="203.0.113.10"
+SSH_USER="kgthegreat"
+SSH_PORT="22"
+
+APP_HOME="/home/kgthegreat/readperfect"
+APP_PORT="8085"
+DOMAIN="readperfect.com"
+GIT_REPO="git@github.com:yourusername/readperfect.git"
+
+GO_PATH="/usr/local/go/bin/go"
+DB_PATH="./readperfect.db"
+
+SERVICE_NAME="readperfect"
+BINARY_NAME="readperfect"
+NGINX_SITE_NAME="readperfect"

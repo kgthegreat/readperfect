@@ -1,0 +1,49 @@
+{{ define "title" }}Book invite | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="auth-page">
+  <header class="site-header auth-header">
+    <div class="container header-row">
+      <a class="brand" href="/" aria-label="readperfect home">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <div class="header-actions">
+        {{ if .CurrentUser }}
+          <span class="app-user">{{ .CurrentUser.Email }}</span>
+        {{ else }}
+          <a class="link-button" href="/login?next={{ .NextPath }}">Sign in</a>
+        {{ end }}
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-main">
+    <section class="auth-card">
+      <div class="auth-copy">
+        <p class="eyebrow">Reviewer invitation</p>
+        <h1>{{ .InviteBook.Title }}</h1>
+        <p class="section-text">by {{ .InviteBook.AuthorName }}</p>
+        <p class="section-text">This invitation was sent to <strong>{{ .Invitation.Email }}</strong>.</p>
+      </div>
+
+      {{ with index .Errors "invite" }}
+        <div class="form-error-banner">{{ . }}</div>
+      {{ end }}
+
+      {{ if .InviteAccepted }}
+        <div class="flash-banner">Invite accepted. You can now open the reviewer workspace for this book.</div>
+      {{ else if .CurrentUser }}
+        <form class="auth-form" action="{{ .NextPath }}/accept" method="post">
+          <button class="primary-button wide-button" formaction="{{ .NextPath }}/accept" type="submit">Accept invite</button>
+        </form>
+      {{ else }}
+        <div class="auth-actions-stack">
+          <a class="primary-button wide-button" href="/login?next={{ .NextPath }}">Sign in to accept</a>
+          <a class="secondary-button wide-button" href="/signup?next={{ .NextPath }}">Create account to accept</a>
+        </div>
+      {{ end }}
+    </section>
+  </main>
+</div>
+{{ end }}

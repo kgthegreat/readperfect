@@ -1,0 +1,189 @@
+{{ define "title" }}Review {{ .ReviewBook.Title }} | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/" aria-label="readperfect home">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/reviews/{{ .ReviewBook.ID }}">Review workspace</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Email }}</span>
+        <form action="/logout" method="post">
+          <button class="quiet-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Reviewer workspace</p>
+          <h1>{{ .ReviewBook.Title }}</h1>
+          <p class="section-text">by {{ .ReviewBook.AuthorName }}</p>
+          {{ if .ReviewBook.Description }}
+            <p class="section-text">{{ .ReviewBook.Description }}</p>
+          {{ end }}
+        </div>
+      </section>
+
+      {{ if .Flash }}
+        <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      <section class="workspace-columns">
+        <article class="form-panel draft-panel">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Add a note</p>
+              <h2>Capture reactions with context.</h2>
+            </div>
+          </div>
+
+          <form class="book-form" action="/reviews/{{ .ReviewBook.ID }}/entries" method="post" novalidate>
+            <div class="field-stack">
+              <label for="entry_type">Note type</label>
+              <select id="entry_type" name="entry_type">
+                <option value="">Choose one</option>
+                <option value="page" {{ if eq (index .Form "entry_type") "page" }}selected{{ end }}>Page note</option>
+                <option value="chapter" {{ if eq (index .Form "entry_type") "chapter" }}selected{{ end }}>Chapter note</option>
+              </select>
+              {{ with index .Errors "entry_type" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+
+            <div class="field-stack">
+              <label for="page_number">Page number</label>
+              <input id="page_number" name="page_number" type="text" value="{{ index .Form "page_number" }}">
+              {{ with index .Errors "page_number" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+
+            <div class="field-stack">
+              <label for="chapter_label">Chapter label</label>
+              <input id="chapter_label" name="chapter_label" type="text" value="{{ index .Form "chapter_label" }}" placeholder="Chapter 4">
+              {{ with index .Errors "chapter_label" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+
+            <div class="field-stack">
+              <label for="anchor_text">Anchor or quoted line <span class="optional-copy">optional</span></label>
+              <input id="anchor_text" name="anchor_text" type="text" value="{{ index .Form "anchor_text" }}">
+            </div>
+
+            <div class="field-stack">
+              <label for="comment_body">Comment</label>
+              <textarea id="comment_body" name="comment_body" rows="6">{{ index .Form "comment_body" }}</textarea>
+              {{ with index .Errors "comment_body" }}<p class="field-error">{{ . }}</p>{{ end }}
+            </div>
+
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Save note</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="form-panel">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Draft notes</p>
+              <h2>Queued in your current draft.</h2>
+            </div>
+            <form action="/reviews/{{ .ReviewBook.ID }}/submit" method="post">
+              <button class="primary-button" type="submit">Submit feedback</button>
+            </form>
+          </div>
+
+          {{ if .ReviewEntries }}
+            <div class="question-list">
+              {{ range .ReviewEntries }}
+                <article class="list-item-card draft-note-card">
+                  <div class="list-item-head">
+                    <span class="note-type">{{ .EntryType }} note</span>
+                    {{ if .PageNumber.Valid }}
+                      <span class="muted-meta">Page {{ .PageNumber.Int64 }}</span>
+                    {{ else if .ChapterLabel.Valid }}
+                      <span class="muted-meta">{{ .ChapterLabel.String }}</span>
+                    {{ end }}
+                  </div>
+                  {{ if .AnchorText.Valid }}
+                    <p class="note-anchor">"{{ .AnchorText.String }}"</p>
+                  {{ end }}
+                  <p>{{ .CommentBody }}</p>
+                </article>
+              {{ end }}
+            </div>
+          {{ else }}
+            <p class="empty-copy">No draft notes yet.</p>
+          {{ end }}
+        </article>
+      </section>
+
+      <section class="form-panel">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Submitted feedback</p>
+            <h2>What you have already sent.</h2>
+          </div>
+        </div>
+
+        {{ if .SubmittedFeedback }}
+          <div class="submitted-groups">
+            {{ range .SubmittedFeedback }}
+              <article class="submitted-group">
+                <div class="list-item-head">
+                  <div>
+                    <h3>Submitted batch</h3>
+                  </div>
+                  <span class="muted-meta">{{ .SubmittedAt.Format "02 Jan 2006 15:04" }}</span>
+                </div>
+                <div class="question-list">
+                  {{ range .Entries }}
+                    <article class="list-item-card submitted-note-card">
+                      <div class="list-item-head">
+                        <span class="note-type">{{ .EntryType }} note</span>
+                        {{ if .PageNumber.Valid }}
+                          <span class="muted-meta">Page {{ .PageNumber.Int64 }}</span>
+                        {{ else if .ChapterLabel.Valid }}
+                          <span class="muted-meta">{{ .ChapterLabel.String }}</span>
+                        {{ end }}
+                      </div>
+                      {{ if .AnchorText.Valid }}
+                        <p class="note-anchor">"{{ .AnchorText.String }}"</p>
+                      {{ end }}
+                      <p>{{ .CommentBody }}</p>
+                      {{ if .AuthorReaction.Valid }}
+                        <div class="response-block">
+                          <span class="reaction-pill">Insightful</span>
+                          {{ if .AuthorComment.Valid }}
+                            <div class="author-response-note">
+                              <span class="author-response-label">Author reply</span>
+                              <p class="author-comment">{{ .AuthorComment.String }}</p>
+                            </div>
+                          {{ end }}
+                        </div>
+                      {{ else if .AuthorComment.Valid }}
+                        <div class="response-block">
+                          <div class="author-response-note">
+                            <span class="author-response-label">Author reply</span>
+                            <p class="author-comment">{{ .AuthorComment.String }}</p>
+                          </div>
+                        </div>
+                      {{ end }}
+                    </article>
+                  {{ end }}
+                </div>
+              </article>
+            {{ end }}
+          </div>
+        {{ else }}
+          <p class="empty-copy">No submitted feedback yet.</p>
+        {{ end }}
+      </section>
+    </div>
+  </main>
+</div>
+{{ end }}

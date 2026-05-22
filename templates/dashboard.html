@@ -1,0 +1,104 @@
+{{ define "title" }}Dashboard | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/app" aria-label="readperfect dashboard">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/app">Dashboard</a>
+        <a href="/books/new">Add book</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Name }}</span>
+        <form action="/logout" method="post">
+          <button class="secondary-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Author dashboard</p>
+          <h1>Welcome back, {{ .CurrentUser.Name }}.</h1>
+          <p class="section-text">Your workspace now starts with books. Add one, then we can move into metadata enrichment, author questions, and reviewer invites.</p>
+        </div>
+        <a class="primary-button" href="/books/new">Add your first book</a>
+      </section>
+
+      {{ if .Flash }}
+        <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <p class="panel-label">Books</p>
+          <strong>{{ .Stats.BooksOwned }}</strong>
+          <span>owned by you</span>
+        </article>
+        <article class="stat-card">
+          <p class="panel-label">Pending invites</p>
+          <strong>{{ .Stats.PendingInvitations }}</strong>
+          <span>awaiting reviewer action</span>
+        </article>
+        <article class="stat-card">
+          <p class="panel-label">Submitted feedback</p>
+          <strong>{{ .Stats.SubmittedFeedback }}</strong>
+          <span>ready for review</span>
+        </article>
+      </section>
+
+      {{ if .Books }}
+        <section class="books-section">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Your books</p>
+              <h2>Current author workspaces</h2>
+            </div>
+            <a class="secondary-button" href="/books/new">Add another book</a>
+          </div>
+          <div class="book-list">
+            {{ range .Books }}
+              <article class="book-card">
+                <div class="book-card-head">
+                  <div class="book-card-cover">
+                    <span>{{ .Title }}</span>
+                  </div>
+                  <div>
+                    <h3><a href="/books/{{ .ID }}">{{ .Title }}</a></h3>
+                    <p>by {{ .AuthorName }}</p>
+                  </div>
+                </div>
+                <div class="book-card-meta">
+                  <span class="status-pill">{{ .Status }}</span>
+                  {{ if .ISBN }}<span class="muted-meta">ISBN {{ .ISBN }}</span>{{ end }}
+                </div>
+                {{ if .Description }}
+                  <p class="book-card-description">{{ .Description }}</p>
+                {{ else }}
+                  <p class="book-card-description is-muted">No description added yet.</p>
+                {{ end }}
+              </article>
+            {{ end }}
+          </div>
+        </section>
+      {{ else }}
+        <section class="empty-state">
+          <p class="section-kicker">Books</p>
+          <h2>Your first book starts here.</h2>
+          <p class="section-text">Create the author-owned book record first. Once that exists, we can attach metadata lookup, author questions, and reviewer invitations to it.</p>
+          <div class="form-actions">
+            <a class="primary-button" href="/books/new">Add a book</a>
+          </div>
+        </section>
+      {{ end }}
+    </div>
+  </main>
+</div>
+{{ end }}

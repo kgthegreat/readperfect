@@ -1,0 +1,259 @@
+{{ define "title" }}readperfect | Thoughtful feedback for books{{ end }}
+
+{{ define "content" }}
+<div class="site-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/" aria-label="readperfect home">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="#how-it-works">How it works</a>
+        <a href="#for-authors">Authors</a>
+        <a href="#for-reviewers">Reviewers</a>
+      </nav>
+      <div class="header-actions">
+        {{ if .CurrentUser }}
+          <a class="link-button" href="/app">Dashboard</a>
+          <form action="/logout" method="post">
+            <button class="primary-button" type="submit">Sign out</button>
+          </form>
+        {{ else }}
+          <a class="link-button" href="/login">Sign in</a>
+          <a class="primary-button" href="/signup">Start a book</a>
+        {{ end }}
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero-band">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Thoughtful reviewer feedback, by invitation</p>
+          <h1>Thoughtful feedback for books before they meet the world.</h1>
+          <p class="hero-text">
+            Invite trusted readers, collect page-by-page notes, and keep early responses private, clear, and useful.
+          </p>
+          <div class="hero-actions">
+            <a class="primary-button" href="/signup">Start a book</a>
+            <a class="secondary-button" href="#how-it-works">See how it works</a>
+          </div>
+          <ul class="hero-points" aria-label="Product highlights">
+            <li>Email and Google sign-in for authors and invited reviewers</li>
+            <li>Page and chapter notes with deliberate submit flow</li>
+            <li>Private by default between author and reviewer</li>
+          </ul>
+        </div>
+
+        <div class="hero-visual">
+          <figure class="hero-image-frame">
+            <img src="/static/img/hero-reading-desk.webp" alt="A hardcover book surrounded by handwritten reading notes on a warm editorial desk.">
+          </figure>
+          <div class="hero-preview">
+            <div class="preview-book">
+              <p class="preview-label">Current book</p>
+              <div class="book-row">
+                <div class="book-cover">
+                  <span>The Long Draft</span>
+                </div>
+                <div>
+                  <h2>The Long Draft</h2>
+                  <p>by Mara Ellison</p>
+                </div>
+              </div>
+            </div>
+            <div class="preview-note-list">
+              <article class="note-item">
+                <span class="note-type">Page 47</span>
+                <p>The argument lands well here, but the final paragraph feels one beat too long.</p>
+              </article>
+              <article class="note-item">
+                <span class="note-type">Chapter note</span>
+                <p>I’m invested in the narrator now. This is where the story starts to open up emotionally.</p>
+              </article>
+              <article class="question-item">
+                <span class="note-type">Author question</span>
+                <p>Did the transition into chapter four feel earned?</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-band audience-band">
+      <div class="container split-intro">
+        <div>
+          <p class="eyebrow">Built for private early feedback</p>
+          <h2>Authors start the workspace. Reviewers join by invitation.</h2>
+        </div>
+        <p class="section-text">
+          readperfect is designed for deliberate early review: authors add a book, invite trusted readers, and receive feedback that can be drafted over time and submitted with context.
+        </p>
+      </div>
+      <div class="container audience-grid">
+        <article id="for-authors" class="audience-card">
+          <p class="section-kicker">For authors</p>
+          <h3>Invite trusted readers into a private feedback workspace.</h3>
+          <ul class="feature-list">
+            <li>Add a book by title and author, then enrich it with metadata.</li>
+            <li>Invite family, friends, or early readers by email.</li>
+            <li>Ask specific questions alongside open-ended page notes.</li>
+            <li>Read submitted feedback by reviewer, page, or chapter.</li>
+          </ul>
+        </article>
+
+        <article id="for-reviewers" class="audience-card">
+          <p class="section-kicker">For invited reviewers</p>
+          <h3>Respond in detail without being pushed into rushed reactions.</h3>
+          <ul class="feature-list">
+            <li>Join by invitation, then sign in with Google or email.</li>
+            <li>Leave page-by-page commentary or broader chapter reflections.</li>
+            <li>Save drafts as you read, then send feedback deliberately.</li>
+            <li>Share feedback directly with the author in a private workspace.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="section-band steps-band">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">How it works</p>
+          <h2>A clear flow from first invite to finished feedback.</h2>
+        </div>
+        <div class="steps-grid">
+          <article class="step-card">
+            <span class="step-index">01</span>
+            <h3>Create an account</h3>
+            <p>Authors can sign in with Google or create an email and password account, then land in a dedicated workspace.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-index">02</span>
+            <h3>Add a book</h3>
+            <p>Start with a title and author, then enrich the book with metadata and custom author questions.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-index">03</span>
+            <h3>Invite reviewers</h3>
+            <p>Authors invite family, friends, or early readers by email and guide them into one private feedback workspace.</p>
+          </article>
+          <article class="step-card">
+            <span class="step-index">04</span>
+            <h3>Read submitted feedback</h3>
+            <p>Reviewers draft freely, then submit intentionally. Authors read feedback in one calm workspace.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-band preview-band">
+      <div class="container preview-layout">
+        <div class="section-heading">
+          <p class="eyebrow">Product preview</p>
+          <h2>Made for authors and invited reviewers, not generic forms.</h2>
+          <p class="section-text">
+            The interface is built around the reading experience: a book at the center, notes with context, and enough structure to make feedback useful later.
+          </p>
+        </div>
+        <div class="workspace-panel">
+          <div class="workspace-topbar">
+            <div>
+              <p class="panel-label">Reviewer workspace</p>
+              <h3>The Long Draft</h3>
+            </div>
+            <button class="ghost-chip" type="button">Save draft</button>
+          </div>
+          <div class="workspace-grid">
+            <section class="workspace-column">
+              <p class="panel-label">Add a note</p>
+              <div class="composer-card">
+                <div class="inline-fields">
+                  <span class="field-pill is-active">Page note</span>
+                  <span class="field-pill">Chapter note</span>
+                </div>
+                <div class="field-stack">
+                  <label>Page number</label>
+                  <div class="field-box">47</div>
+                </div>
+                <div class="field-stack">
+                  <label>Anchor or quoted line</label>
+                  <div class="field-box">"She folded the letter into her coat pocket."</div>
+                </div>
+                <div class="field-stack">
+                  <label>Comment</label>
+                  <div class="field-box multiline">This is where the emotional thread becomes tangible. I wanted one more line before the scene turns.</div>
+                </div>
+                <div class="inline-fields">
+                  <span class="tag-pill">Pacing</span>
+                  <span class="tag-pill">Emotional impact</span>
+                </div>
+              </div>
+            </section>
+            <section class="workspace-column">
+              <p class="panel-label">Queued for sending</p>
+              <div class="submission-list">
+                <article class="submission-item">
+                  <span class="note-type">Page 32</span>
+                  <p>The scene-setting is strong, but the dialogue needs a cleaner entry.</p>
+                </article>
+                <article class="submission-item">
+                  <span class="note-type">Page 47</span>
+                  <p>This is the first place I fully trusted the narrator.</p>
+                </article>
+                <article class="submission-item">
+                  <span class="note-type">Chapter 4</span>
+                  <p>The section slows down after the reveal, though the emotional payoff is worth it.</p>
+                </article>
+              </div>
+              <div class="question-card">
+                <p class="panel-label">Author question</p>
+                <p>Did the chapter four transition feel earned?</p>
+                <div class="response-choice">Mostly, but it needs a quieter bridge.</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-band trust-band">
+      <div class="container trust-layout">
+        <div class="section-heading">
+          <p class="eyebrow">Privacy and trust</p>
+          <h2>Early feedback should stay controlled.</h2>
+        </div>
+        <div class="trust-points">
+          <article>
+            <h3>Private by default</h3>
+            <p>Reviewer notes stay private between the invited reviewer and the author unless the author opens visibility later.</p>
+          </article>
+          <article>
+            <h3>Invitation-based participation</h3>
+            <p>In V1, books are created by authors and feedback is collected only from reviewers the author chooses to invite.</p>
+          </article>
+          <article>
+            <h3>Deliberate submission</h3>
+            <p>Feedback can be drafted over time, then sent when a reviewer is ready to stand behind it.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-band cta-band">
+      <div class="container cta-layout">
+        <div>
+          <p class="eyebrow">Start with one book</p>
+          <h2>Build a better early reader circle.</h2>
+        </div>
+        <div class="cta-actions">
+          <a class="primary-button" href="/signup">Create an account</a>
+          <a class="secondary-button" href="/login">Sign in</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+{{ end }}
