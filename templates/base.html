@@ -13,6 +13,16 @@
   </head>
   <body>
     {{ template "content" . }}
+    <footer class="legal-footer">
+      <div class="container legal-footer-row">
+        <p>readperfect is a private early-access review workspace for authors and invited readers.</p>
+        <nav class="legal-nav" aria-label="Legal">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/contact">Contact</a>
+        </nav>
+      </div>
+    </footer>
   </body>
 </html>
 {{ end }}

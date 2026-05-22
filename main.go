@@ -53,6 +53,7 @@ type application struct {
 	staticFS            http.Handler
 	sessionCookieSecure bool
 	googleOAuth         *oauth2.Config
+	googleLoginEnabled  bool
 }
 
 type templateData struct {
@@ -192,6 +193,7 @@ func main() {
 		staticFS:            http.StripPrefix("/static/", http.FileServer(http.FS(staticRoot))),
 		sessionCookieSecure: os.Getenv("COOKIE_SECURE") == "true",
 		googleOAuth:         newGoogleOAuthConfig(),
+		googleLoginEnabled:  googleLoginEnabled(),
 	}
 
 	if adminEmail := normalizeEmail(os.Getenv("BOOTSTRAP_ADMIN_EMAIL")); adminEmail != "" {
@@ -224,6 +226,9 @@ func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", app.staticFS)
 	mux.HandleFunc("/", app.home)
+	mux.HandleFunc("/privacy", app.privacy)
+	mux.HandleFunc("/terms", app.terms)
+	mux.HandleFunc("/contact", app.contact)
 	mux.HandleFunc("/login", app.login)
 	mux.HandleFunc("/signup", app.signup)
 	mux.HandleFunc("/logout", app.logout)
@@ -248,6 +253,33 @@ func (app *application) home(w http.ResponseWriter, r *http.Request) {
 
 	data := app.newTemplateData(r)
 	app.render(w, http.StatusOK, "home", data)
+}
+
+func (app *application) privacy(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/privacy" {
+		http.NotFound(w, r)
+		return
+	}
+
+	app.render(w, http.StatusOK, "privacy", app.newTemplateData(r))
+}
+
+func (app *application) terms(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/terms" {
+		http.NotFound(w, r)
+		return
+	}
+
+	app.render(w, http.StatusOK, "terms", app.newTemplateData(r))
+}
+
+func (app *application) contact(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/contact" {
+		http.NotFound(w, r)
+		return
+	}
+
+	app.render(w, http.StatusOK, "contact", app.newTemplateData(r))
 }
 
 func (app *application) login(w http.ResponseWriter, r *http.Request) {
@@ -1017,8 +1049,8 @@ func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, e
 }
 
 func (app *application) googleStart(w http.ResponseWriter, r *http.Request) {
-	if app.googleOAuth == nil {
-		http.Redirect(w, r, "/login?flash=Google+sign-in+is+not+configured+yet.", http.StatusSeeOther)
+	if app.googleOAuth == nil || !app.googleLoginEnabled {
+		http.NotFound(w, r)
 		return
 	}
 
@@ -1043,8 +1075,8 @@ func (app *application) googleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *application) googleCallback(w http.ResponseWriter, r *http.Request) {
-	if app.googleOAuth == nil {
-		http.Redirect(w, r, "/login?flash=Google+sign-in+is+not+configured+yet.", http.StatusSeeOther)
+	if app.googleOAuth == nil || !app.googleLoginEnabled {
+		http.NotFound(w, r)
 		return
 	}
 
@@ -1130,7 +1162,7 @@ func (app *application) currentUser(r *http.Request) *User {
 func (app *application) newTemplateData(r *http.Request) *templateData {
 	return &templateData{
 		CurrentUser:        app.currentUser(r),
-		GoogleLoginEnabled: app.googleOAuth != nil,
+		GoogleLoginEnabled: app.googleOAuth != nil && app.googleLoginEnabled,
 		Flash:              r.URL.Query().Get("flash"),
 		Form:               map[string]string{},
 		Errors:             map[string]string{},
@@ -1151,7 +1183,7 @@ func (app *application) render(w http.ResponseWriter, status int, page string, d
 }
 
 func newTemplateCache() (map[string]*template.Template, error) {
-	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show"}
+	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact"}
 	cache := make(map[string]*template.Template, len(pages))
 
 	for _, page := range pages {
@@ -2182,6 +2214,10 @@ func (app *application) expireCookie(w http.ResponseWriter, name string) {
 }
 
 func newGoogleOAuthConfig() *oauth2.Config {
+	if !googleLoginEnabled() {
+		return nil
+	}
+
 	clientID := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
 	clientSecret := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))
 	redirectURL := strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URL"))
@@ -2196,6 +2232,16 @@ func newGoogleOAuthConfig() *oauth2.Config {
 		RedirectURL:  redirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       []string{"openid", "email", "profile"},
+	}
+}
+
+func googleLoginEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("GOOGLE_LOGIN_ENABLED")))
+	switch value {
+	case "", "1", "true", "yes":
+		return true
+	default:
+		return false
 	}
 }
 

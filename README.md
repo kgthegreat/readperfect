@@ -24,6 +24,7 @@ Google sign-in is enabled when these values are present in `.env`:
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
+GOOGLE_LOGIN_ENABLED=true
 ```
 
 Optional `.env` values:
@@ -32,6 +33,12 @@ Optional `.env` values:
 DATABASE_PATH=./readperfect.db
 COOKIE_SECURE=false
 BOOTSTRAP_ADMIN_EMAIL=you@example.com
+```
+
+To disable Google sign-in without removing the OAuth client settings:
+
+```bash
+GOOGLE_LOGIN_ENABLED=false
 ```
 
 The app reads `.env` automatically on startup if the file exists. Existing shell environment variables still take precedence.

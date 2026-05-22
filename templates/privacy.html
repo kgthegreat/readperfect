@@ -1,0 +1,33 @@
+{{ define "title" }}Privacy | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="site-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/" aria-label="readperfect home">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <div class="header-actions">
+        <a class="link-button" href="/login">Sign in</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container narrow-layout app-layout">
+      <section class="form-panel legal-panel">
+        <p class="eyebrow">Privacy</p>
+        <h1>Private by default.</h1>
+        <p class="section-text">readperfect is designed for private, invitation-based review. We collect only the account, book, invitation, and feedback data needed to operate the workspace.</p>
+        <div class="legal-copy">
+          <p>Author accounts include name, email address, and password hash. Invited reviewers provide an email address and any feedback they choose to submit.</p>
+          <p>Book feedback is visible only within the workspace for that book and is not published publicly by default.</p>
+          <p>We use Google OAuth only when enabled by the site operator. Otherwise the service runs on email and password authentication only.</p>
+          <p>If you are participating in a private review and want your data removed, contact the site operator through the address listed on the contact page.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+{{ end }}

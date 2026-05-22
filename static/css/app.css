@@ -513,6 +513,42 @@ form {
     var(--bg);
 }
 
+.legal-footer {
+  border-top: 1px solid rgba(221, 212, 199, 0.85);
+  background: rgba(252, 250, 246, 0.95);
+}
+
+.legal-footer-row {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 0 0;
+}
+
+.legal-footer p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.93rem;
+}
+
+.legal-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.legal-nav a {
+  color: var(--text-muted);
+  font-size: 0.93rem;
+}
+
+.legal-nav a:hover {
+  color: var(--text);
+}
+
 .auth-header {
   position: static;
   background: transparent;
@@ -752,6 +788,29 @@ form {
 
 .form-panel {
   padding: 28px;
+}
+
+.legal-panel h1 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: clamp(2.2rem, 4vw, 3rem);
+  font-weight: 500;
+  line-height: 1.02;
+  margin: 0 0 12px;
+}
+
+.legal-copy {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.legal-copy p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.legal-copy a {
+  color: var(--accent-strong);
 }
 
 .book-form {
@@ -1092,7 +1151,8 @@ form {
   .workspace-grid,
   .split-intro,
   .cta-layout,
-  .dashboard-hero {
+  .dashboard-hero,
+  .legal-footer-row {
     flex-direction: column;
   }
 

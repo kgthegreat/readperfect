@@ -19,6 +19,6 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 1
 fi
 
-ssh -t -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos --register-unsafely-without-email || sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN"
+ssh -t -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "sudo certbot --nginx --redirect -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos --register-unsafely-without-email || sudo certbot --nginx --redirect -d $DOMAIN -d www.$DOMAIN"
 
 echo "SSL configured on server"
