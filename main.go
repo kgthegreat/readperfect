@@ -267,7 +267,6 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("/auth/google/start", app.googleStart)
 	mux.HandleFunc("/auth/google/callback", app.googleCallback)
 	mux.HandleFunc("/invites/", app.invitesRouter)
-	mux.Handle("/entries/", app.requireAuth(http.HandlerFunc(app.entriesRouter)))
 	mux.Handle("/review-chapters/", app.requireAuth(http.HandlerFunc(app.reviewChaptersRouter)))
 	mux.Handle("/review-pages/", app.requireAuth(http.HandlerFunc(app.reviewPagesRouter)))
 	mux.Handle("/app", app.requireAuth(http.HandlerFunc(app.dashboard)))
@@ -690,28 +689,6 @@ func (app *application) reviewPagesRouter(w http.ResponseWriter, r *http.Request
 	}
 
 	http.NotFound(w, r)
-}
-
-func (app *application) entriesRouter(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/entries/")
-	if path == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 || parts[1] != "respond" || r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-
-	entryID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	app.respondToEntry(w, r, entryID)
 }
 
 func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -1157,61 +1134,6 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Feedback submitted. You can keep working on this draft.")
 }
 
-func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, entryID int64) {
-	user := app.currentUser(r)
-	entry, bookID, err := app.getSubmittedEntryForAuthor(entryID, user.ID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "could not load feedback entry", http.StatusInternalServerError)
-		return
-	}
-
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-
-	action := strings.TrimSpace(r.FormValue("action"))
-	reaction := strings.TrimSpace(r.FormValue("reaction"))
-	comment := strings.TrimSpace(r.FormValue("comment"))
-
-	if reaction != "" && reaction != "insightful" {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported reaction.")
-		return
-	}
-	if len(comment) > 2000 {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
-		return
-	}
-
-	switch action {
-	case "toggle_reaction":
-		if reaction == "" {
-			app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported reaction.")
-			return
-		}
-		if entry.AuthorReaction.Valid && entry.AuthorReaction.String == reaction {
-			reaction = ""
-		}
-		comment = currentNullString(entry.AuthorComment)
-	case "save_comment":
-		reaction = currentNullString(entry.AuthorReaction)
-	default:
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response action.")
-		return
-	}
-
-	if err := app.upsertEntryResponse(entry.ID, reaction, comment); err != nil {
-		http.Error(w, "could not save response", http.StatusInternalServerError)
-		return
-	}
-
-	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
-}
-
 func (app *application) respondToChapter(w http.ResponseWriter, r *http.Request, chapterID int64) {
 	user := app.currentUser(r)
 	chapter, bookID, err := app.getSubmittedReviewChapterForAuthor(chapterID, user.ID)
@@ -1634,42 +1556,51 @@ func runMigrations(db *sql.DB) error {
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (invitation_id) REFERENCES review_invitations(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS feedback_submissions (
+		`CREATE TABLE IF NOT EXISTS review_drafts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			book_id INTEGER NOT NULL,
 			reviewer_user_id INTEGER NOT NULL,
-			status TEXT NOT NULL DEFAULT 'draft',
-			submitted_at DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
+			UNIQUE(book_id, reviewer_user_id),
 			FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
 			FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS feedback_entries (
+		`CREATE TABLE IF NOT EXISTS review_draft_chapters (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			submission_id INTEGER NOT NULL,
-			entry_type TEXT NOT NULL,
-			page_number INTEGER,
-			chapter_label TEXT,
-			anchor_text TEXT,
-			comment_body TEXT NOT NULL,
-			tag TEXT,
-			question_id INTEGER,
+			draft_id INTEGER NOT NULL,
+			label TEXT NOT NULL,
+			note_anchor_text TEXT,
+			note_body TEXT,
 			position INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
-			FOREIGN KEY (submission_id) REFERENCES feedback_submissions(id) ON DELETE CASCADE,
-			FOREIGN KEY (question_id) REFERENCES author_questions(id) ON DELETE SET NULL
+			FOREIGN KEY (draft_id) REFERENCES review_drafts(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS feedback_entry_responses (
-			feedback_entry_id INTEGER PRIMARY KEY,
-			author_reaction TEXT,
-			author_comment TEXT,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_draft_chapters_draft_label
+			ON review_draft_chapters(draft_id, label COLLATE NOCASE);`,
+		`CREATE TABLE IF NOT EXISTS review_draft_pages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chapter_id INTEGER NOT NULL,
+			page_number INTEGER NOT NULL,
+			anchor_text TEXT,
+			comment_body TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
-			FOREIGN KEY (feedback_entry_id) REFERENCES feedback_entries(id) ON DELETE CASCADE
+			UNIQUE(chapter_id, page_number),
+			FOREIGN KEY (chapter_id) REFERENCES review_draft_chapters(id) ON DELETE CASCADE
 		);`,
-		`CREATE TABLE IF NOT EXISTS review_chapters (
+		`CREATE TABLE IF NOT EXISTS review_submissions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			book_id INTEGER NOT NULL,
+			reviewer_user_id INTEGER NOT NULL,
+			submitted_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL,
+			FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+			FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS review_submission_chapters (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			submission_id INTEGER NOT NULL,
 			label TEXT NOT NULL,
@@ -1680,11 +1611,9 @@ func runMigrations(db *sql.DB) error {
 			author_comment TEXT,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
-			FOREIGN KEY (submission_id) REFERENCES feedback_submissions(id) ON DELETE CASCADE
+			FOREIGN KEY (submission_id) REFERENCES review_submissions(id) ON DELETE CASCADE
 		);`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_chapters_submission_label
-			ON review_chapters(submission_id, label COLLATE NOCASE);`,
-		`CREATE TABLE IF NOT EXISTS review_pages (
+		`CREATE TABLE IF NOT EXISTS review_submission_pages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			chapter_id INTEGER NOT NULL,
 			page_number INTEGER NOT NULL,
@@ -1696,7 +1625,7 @@ func runMigrations(db *sql.DB) error {
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			UNIQUE(chapter_id, page_number),
-			FOREIGN KEY (chapter_id) REFERENCES review_chapters(id) ON DELETE CASCADE
+			FOREIGN KEY (chapter_id) REFERENCES review_submission_chapters(id) ON DELETE CASCADE
 		);`,
 	}
 
@@ -1931,9 +1860,9 @@ func (app *application) dashboardStats(userID int64) (dashboardStats, error) {
 	}
 	if err := app.db.QueryRow(`
 		SELECT COUNT(*)
-		FROM feedback_submissions fs
-		JOIN books b ON b.id = fs.book_id
-		WHERE b.owner_user_id = ? AND fs.status = 'submitted'
+		FROM review_submissions rs
+		JOIN books b ON b.id = rs.book_id
+		WHERE b.owner_user_id = ?
 	`, userID).Scan(&stats.SubmittedFeedback); err != nil {
 		return stats, err
 	}
@@ -2221,17 +2150,13 @@ func (app *application) acceptInvitation(invitationID, userID int64) error {
 func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*FeedbackSubmission, []FeedbackEntry, error) {
 	var submission FeedbackSubmission
 	err := app.db.QueryRow(`
-		SELECT id, book_id, reviewer_user_id, status, submitted_at, created_at, updated_at
-		FROM feedback_submissions
-		WHERE book_id = ? AND reviewer_user_id = ? AND status = 'draft'
-		ORDER BY id DESC
-		LIMIT 1
+		SELECT id, book_id, reviewer_user_id, created_at, updated_at
+		FROM review_drafts
+		WHERE book_id = ? AND reviewer_user_id = ?
 	`, bookID, reviewerUserID).Scan(
 		&submission.ID,
 		&submission.BookID,
 		&submission.ReviewerUserID,
-		&submission.Status,
-		&submission.SubmittedAt,
 		&submission.CreatedAt,
 		&submission.UpdatedAt,
 	)
@@ -2240,8 +2165,8 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 	case errors.Is(err, sql.ErrNoRows):
 		now := time.Now().UTC()
 		res, err := app.db.Exec(`
-			INSERT INTO feedback_submissions (book_id, reviewer_user_id, status, created_at, updated_at)
-			VALUES (?, ?, 'draft', ?, ?)
+			INSERT INTO review_drafts (book_id, reviewer_user_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?)
 		`, bookID, reviewerUserID, now, now)
 		if err != nil {
 			return nil, nil, err
@@ -2254,7 +2179,6 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 			ID:             submissionID,
 			BookID:         bookID,
 			ReviewerUserID: reviewerUserID,
-			Status:         "draft",
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}
@@ -2266,11 +2190,94 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 }
 
 func (app *application) listReviewChapters(submissionID int64) ([]ReviewChapter, error) {
+	return app.listDraftReviewChapters(submissionID)
+}
+
+func (app *application) listDraftReviewChapters(draftID int64) ([]ReviewChapter, error) {
+	rows, err := app.db.Query(`
+		SELECT
+			id, draft_id, label, note_anchor_text, note_body, position, created_at, updated_at
+		FROM review_draft_chapters
+		WHERE draft_id = ?
+		ORDER BY position ASC, id ASC
+	`, draftID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chapters []ReviewChapter
+	for rows.Next() {
+		var chapter ReviewChapter
+		if err := rows.Scan(
+			&chapter.ID,
+			&chapter.SubmissionID,
+			&chapter.Label,
+			&chapter.NoteAnchorText,
+			&chapter.NoteBody,
+			&chapter.Position,
+			&chapter.CreatedAt,
+			&chapter.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		chapters = append(chapters, chapter)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range chapters {
+		pages, err := app.listDraftReviewPages(chapters[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		chapters[i].Pages = pages
+	}
+	return chapters, nil
+}
+
+func (app *application) listReviewPages(chapterID int64) ([]ReviewPage, error) {
+	return app.listDraftReviewPages(chapterID)
+}
+
+func (app *application) listDraftReviewPages(chapterID int64) ([]ReviewPage, error) {
+	rows, err := app.db.Query(`
+		SELECT id, chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at
+		FROM review_draft_pages
+		WHERE chapter_id = ?
+		ORDER BY page_number ASC, position ASC, id ASC
+	`, chapterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pages []ReviewPage
+	for rows.Next() {
+		var page ReviewPage
+		if err := rows.Scan(
+			&page.ID,
+			&page.ChapterID,
+			&page.PageNumber,
+			&page.AnchorText,
+			&page.CommentBody,
+			&page.Position,
+			&page.CreatedAt,
+			&page.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		pages = append(pages, page)
+	}
+	return pages, rows.Err()
+}
+
+func (app *application) listSubmittedReviewChapters(submissionID int64) ([]ReviewChapter, error) {
 	rows, err := app.db.Query(`
 		SELECT
 			id, submission_id, label, note_anchor_text, note_body, position, created_at, updated_at,
 			author_reaction, author_comment
-		FROM review_chapters
+		FROM review_submission_chapters
 		WHERE submission_id = ?
 		ORDER BY position ASC, id ASC
 	`, submissionID)
@@ -2302,7 +2309,7 @@ func (app *application) listReviewChapters(submissionID int64) ([]ReviewChapter,
 		return nil, err
 	}
 	for i := range chapters {
-		pages, err := app.listReviewPages(chapters[i].ID)
+		pages, err := app.listSubmittedReviewPages(chapters[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -2311,11 +2318,11 @@ func (app *application) listReviewChapters(submissionID int64) ([]ReviewChapter,
 	return chapters, nil
 }
 
-func (app *application) listReviewPages(chapterID int64) ([]ReviewPage, error) {
+func (app *application) listSubmittedReviewPages(chapterID int64) ([]ReviewPage, error) {
 	rows, err := app.db.Query(`
 		SELECT id, chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at,
 		       author_reaction, author_comment
-		FROM review_pages
+		FROM review_submission_pages
 		WHERE chapter_id = ?
 		ORDER BY page_number ASC, position ASC, id ASC
 	`, chapterID)
@@ -2348,13 +2355,13 @@ func (app *application) listReviewPages(chapterID int64) ([]ReviewPage, error) {
 
 func (app *application) insertReviewChapter(submissionID int64, label string) (int64, error) {
 	var nextPosition int
-	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_chapters WHERE submission_id = ?`, submissionID).Scan(&nextPosition); err != nil {
+	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_draft_chapters WHERE draft_id = ?`, submissionID).Scan(&nextPosition); err != nil {
 		return 0, err
 	}
 
 	now := time.Now().UTC()
 	res, err := app.db.Exec(`
-		INSERT INTO review_chapters (submission_id, label, position, created_at, updated_at)
+		INSERT INTO review_draft_chapters (draft_id, label, position, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, submissionID, label, nextPosition, now, now)
 	if err != nil {
@@ -2367,8 +2374,8 @@ func (app *application) reviewChapterLabelExists(submissionID int64, label strin
 	var count int
 	err := app.db.QueryRow(`
 		SELECT COUNT(*)
-		FROM review_chapters
-		WHERE submission_id = ? AND lower(trim(label)) = lower(trim(?))
+		FROM review_draft_chapters
+		WHERE draft_id = ? AND lower(trim(label)) = lower(trim(?))
 	`, submissionID, label).Scan(&count)
 	if err != nil {
 		return false, err
@@ -2378,7 +2385,7 @@ func (app *application) reviewChapterLabelExists(submissionID int64, label strin
 
 func (app *application) updateReviewChapterNote(chapterID int64, anchorText, noteBody string) error {
 	_, err := app.db.Exec(`
-		UPDATE review_chapters
+		UPDATE review_draft_chapters
 		SET note_anchor_text = ?, note_body = ?, updated_at = ?
 		WHERE id = ?
 	`, nullIfEmpty(anchorText), nullIfEmpty(noteBody), time.Now().UTC(), chapterID)
@@ -2387,13 +2394,13 @@ func (app *application) updateReviewChapterNote(chapterID int64, anchorText, not
 
 func (app *application) insertReviewPage(chapterID int64, pageNumber int, anchorText, commentBody string) error {
 	var nextPosition int
-	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_pages WHERE chapter_id = ?`, chapterID).Scan(&nextPosition); err != nil {
+	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_draft_pages WHERE chapter_id = ?`, chapterID).Scan(&nextPosition); err != nil {
 		return err
 	}
 
 	now := time.Now().UTC()
 	_, err := app.db.Exec(`
-		INSERT INTO review_pages (chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at)
+		INSERT INTO review_draft_pages (chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, chapterID, pageNumber, nullIfEmpty(anchorText), commentBody, nextPosition, now, now)
 	return err
@@ -2403,8 +2410,8 @@ func (app *application) hasDraftReviewContent(submissionID int64) (bool, error) 
 	var chapterCount int
 	if err := app.db.QueryRow(`
 		SELECT COUNT(*)
-		FROM review_chapters
-		WHERE submission_id = ? AND (note_body IS NOT NULL OR EXISTS (SELECT 1 FROM review_pages rp WHERE rp.chapter_id = review_chapters.id))
+		FROM review_draft_chapters
+		WHERE draft_id = ? AND (note_body IS NOT NULL OR EXISTS (SELECT 1 FROM review_draft_pages rp WHERE rp.chapter_id = review_draft_chapters.id))
 	`, submissionID).Scan(&chapterCount); err != nil {
 		return false, err
 	}
@@ -2419,17 +2426,16 @@ func (app *application) getDraftReviewChapterForReviewer(chapterID, reviewerUser
 
 	err := app.db.QueryRow(`
 		SELECT
-			rc.id, rc.submission_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
-			rc.author_reaction, rc.author_comment,
-			fs.id, fs.book_id, fs.reviewer_user_id, fs.status, fs.submitted_at, fs.created_at, fs.updated_at,
+			rc.id, rc.draft_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
+			rd.id, rd.book_id, rd.reviewer_user_id, rd.created_at, rd.updated_at,
 			b.id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
-		FROM review_chapters rc
-		JOIN feedback_submissions fs ON fs.id = rc.submission_id
-		JOIN books b ON b.id = fs.book_id
-		WHERE rc.id = ? AND fs.reviewer_user_id = ? AND fs.status = 'draft'
+		FROM review_draft_chapters rc
+		JOIN review_drafts rd ON rd.id = rc.draft_id
+		JOIN books b ON b.id = rd.book_id
+		WHERE rc.id = ? AND rd.reviewer_user_id = ?
 	`, chapterID, reviewerUserID).Scan(
-		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt, &chapter.AuthorReaction, &chapter.AuthorComment,
-		&submission.ID, &submission.BookID, &submission.ReviewerUserID, &submission.Status, &submission.SubmittedAt, &submission.CreatedAt, &submission.UpdatedAt,
+		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt,
+		&submission.ID, &submission.BookID, &submission.ReviewerUserID, &submission.CreatedAt, &submission.UpdatedAt,
 		&book.ID, &book.OwnerUserID, &book.Title, &book.AuthorName, &isbn, &coverURL, &description, &book.Status, &book.CreatedAt, &book.UpdatedAt,
 	)
 	if err != nil {
@@ -2451,11 +2457,11 @@ func (app *application) getSubmittedReviewChapterForAuthor(chapterID, authorUser
 	err := app.db.QueryRow(`
 		SELECT
 			rc.id, rc.submission_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
-			rc.author_reaction, rc.author_comment, fs.book_id
-		FROM review_chapters rc
-		JOIN feedback_submissions fs ON fs.id = rc.submission_id
-		JOIN books b ON b.id = fs.book_id
-		WHERE rc.id = ? AND fs.status = 'submitted' AND b.owner_user_id = ?
+			rc.author_reaction, rc.author_comment, rs.book_id
+		FROM review_submission_chapters rc
+		JOIN review_submissions rs ON rs.id = rc.submission_id
+		JOIN books b ON b.id = rs.book_id
+		WHERE rc.id = ? AND b.owner_user_id = ?
 	`, chapterID, authorUserID).Scan(
 		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt,
 		&chapter.AuthorReaction, &chapter.AuthorComment, &bookID,
@@ -2472,12 +2478,12 @@ func (app *application) getSubmittedReviewPageForAuthor(pageID, authorUserID int
 	err := app.db.QueryRow(`
 		SELECT
 			rp.id, rp.chapter_id, rp.page_number, rp.anchor_text, rp.comment_body, rp.position, rp.created_at, rp.updated_at,
-			rp.author_reaction, rp.author_comment, fs.book_id
-		FROM review_pages rp
-		JOIN review_chapters rc ON rc.id = rp.chapter_id
-		JOIN feedback_submissions fs ON fs.id = rc.submission_id
-		JOIN books b ON b.id = fs.book_id
-		WHERE rp.id = ? AND fs.status = 'submitted' AND b.owner_user_id = ?
+			rp.author_reaction, rp.author_comment, rs.book_id
+		FROM review_submission_pages rp
+		JOIN review_submission_chapters rc ON rc.id = rp.chapter_id
+		JOIN review_submissions rs ON rs.id = rc.submission_id
+		JOIN books b ON b.id = rs.book_id
+		WHERE rp.id = ? AND b.owner_user_id = ?
 	`, pageID, authorUserID).Scan(
 		&page.ID, &page.ChapterID, &page.PageNumber, &page.AnchorText, &page.CommentBody, &page.Position, &page.CreatedAt, &page.UpdatedAt,
 		&page.AuthorReaction, &page.AuthorComment, &bookID,
@@ -2490,7 +2496,7 @@ func (app *application) getSubmittedReviewPageForAuthor(pageID, authorUserID int
 
 func (app *application) updateReviewChapterResponse(chapterID int64, reaction, comment string) error {
 	_, err := app.db.Exec(`
-		UPDATE review_chapters
+		UPDATE review_submission_chapters
 		SET author_reaction = ?, author_comment = ?, updated_at = ?
 		WHERE id = ?
 	`, nullIfEmpty(reaction), nullIfEmpty(comment), time.Now().UTC(), chapterID)
@@ -2499,119 +2505,10 @@ func (app *application) updateReviewChapterResponse(chapterID int64, reaction, c
 
 func (app *application) updateReviewPageResponse(pageID int64, reaction, comment string) error {
 	_, err := app.db.Exec(`
-		UPDATE review_pages
+		UPDATE review_submission_pages
 		SET author_reaction = ?, author_comment = ?, updated_at = ?
 		WHERE id = ?
 	`, nullIfEmpty(reaction), nullIfEmpty(comment), time.Now().UTC(), pageID)
-	return err
-}
-
-func (app *application) listFeedbackEntries(submissionID int64) ([]FeedbackEntry, error) {
-	rows, err := app.db.Query(`
-		SELECT
-			fe.id, fe.submission_id, fe.entry_type, fe.page_number, fe.chapter_label, fe.anchor_text,
-			fe.comment_body, fe.tag, fe.question_id, fe.position, fe.created_at, fe.updated_at,
-			fer.author_reaction, fer.author_comment
-		FROM feedback_entries fe
-		LEFT JOIN feedback_entry_responses fer ON fer.feedback_entry_id = fe.id
-		WHERE submission_id = ?
-		ORDER BY fe.position ASC, fe.id ASC
-	`, submissionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []FeedbackEntry
-	for rows.Next() {
-		var entry FeedbackEntry
-		if err := rows.Scan(
-			&entry.ID,
-			&entry.SubmissionID,
-			&entry.EntryType,
-			&entry.PageNumber,
-			&entry.ChapterLabel,
-			&entry.AnchorText,
-			&entry.CommentBody,
-			&entry.Tag,
-			&entry.QuestionID,
-			&entry.Position,
-			&entry.CreatedAt,
-			&entry.UpdatedAt,
-			&entry.AuthorReaction,
-			&entry.AuthorComment,
-		); err != nil {
-			return nil, err
-		}
-		entries = append(entries, entry)
-	}
-	return entries, rows.Err()
-}
-
-func (app *application) insertFeedbackEntry(submissionID int64, entryType string, pageNumber *int, chapterLabel, anchorText, commentBody string) error {
-	var nextPosition int
-	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM feedback_entries WHERE submission_id = ?`, submissionID).Scan(&nextPosition); err != nil {
-		return err
-	}
-
-	now := time.Now().UTC()
-	var pageValue any
-	if pageNumber != nil {
-		pageValue = *pageNumber
-	}
-	_, err := app.db.Exec(`
-		INSERT INTO feedback_entries (submission_id, entry_type, page_number, chapter_label, anchor_text, comment_body, position, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, submissionID, entryType, pageValue, nullIfEmpty(chapterLabel), nullIfEmpty(anchorText), commentBody, nextPosition, now, now)
-	return err
-}
-
-func (app *application) getSubmittedEntryForAuthor(entryID, authorUserID int64) (*FeedbackEntry, int64, error) {
-	var entry FeedbackEntry
-	var bookID int64
-	err := app.db.QueryRow(`
-		SELECT
-			fe.id, fe.submission_id, fe.entry_type, fe.page_number, fe.chapter_label, fe.anchor_text,
-			fe.comment_body, fe.tag, fe.question_id, fe.position, fe.created_at, fe.updated_at,
-			fer.author_reaction, fer.author_comment, fs.book_id
-		FROM feedback_entries fe
-		JOIN feedback_submissions fs ON fs.id = fe.submission_id
-		JOIN books b ON b.id = fs.book_id
-		LEFT JOIN feedback_entry_responses fer ON fer.feedback_entry_id = fe.id
-		WHERE fe.id = ? AND fs.status = 'submitted' AND b.owner_user_id = ?
-	`, entryID, authorUserID).Scan(
-		&entry.ID,
-		&entry.SubmissionID,
-		&entry.EntryType,
-		&entry.PageNumber,
-		&entry.ChapterLabel,
-		&entry.AnchorText,
-		&entry.CommentBody,
-		&entry.Tag,
-		&entry.QuestionID,
-		&entry.Position,
-		&entry.CreatedAt,
-		&entry.UpdatedAt,
-		&entry.AuthorReaction,
-		&entry.AuthorComment,
-		&bookID,
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-	return &entry, bookID, nil
-}
-
-func (app *application) upsertEntryResponse(entryID int64, reaction, comment string) error {
-	now := time.Now().UTC()
-	_, err := app.db.Exec(`
-		INSERT INTO feedback_entry_responses (feedback_entry_id, author_reaction, author_comment, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(feedback_entry_id) DO UPDATE SET
-			author_reaction = excluded.author_reaction,
-			author_comment = excluded.author_comment,
-			updated_at = excluded.updated_at
-	`, entryID, nullIfEmpty(reaction), nullIfEmpty(comment), now, now)
 	return err
 }
 
@@ -2624,15 +2521,13 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 	var draft FeedbackSubmission
 	err = tx.QueryRow(`
-		SELECT id, book_id, reviewer_user_id, status, submitted_at, created_at, updated_at
-		FROM feedback_submissions
-		WHERE id = ? AND status = 'draft'
+		SELECT id, book_id, reviewer_user_id, created_at, updated_at
+		FROM review_drafts
+		WHERE id = ?
 	`, submissionID).Scan(
 		&draft.ID,
 		&draft.BookID,
 		&draft.ReviewerUserID,
-		&draft.Status,
-		&draft.SubmittedAt,
 		&draft.CreatedAt,
 		&draft.UpdatedAt,
 	)
@@ -2642,9 +2537,9 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 	now := time.Now().UTC()
 	res, err := tx.Exec(`
-		INSERT INTO feedback_submissions (book_id, reviewer_user_id, status, submitted_at, created_at, updated_at)
-		VALUES (?, ?, 'submitted', ?, ?, ?)
-	`, draft.BookID, draft.ReviewerUserID, now, now, now)
+		INSERT INTO review_submissions (book_id, reviewer_user_id, submitted_at, created_at)
+		VALUES (?, ?, ?, ?)
+	`, draft.BookID, draft.ReviewerUserID, now, now)
 	if err != nil {
 		return err
 	}
@@ -2654,9 +2549,9 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 	}
 
 	rows, err := tx.Query(`
-		SELECT id, label, note_anchor_text, note_body, position, created_at, updated_at, author_reaction, author_comment
-		FROM review_chapters
-		WHERE submission_id = ?
+		SELECT id, label, note_anchor_text, note_body, position, created_at, updated_at
+		FROM review_draft_chapters
+		WHERE draft_id = ?
 		ORDER BY position ASC, id ASC
 	`, draft.ID)
 	if err != nil {
@@ -2674,8 +2569,6 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 			&chapter.Position,
 			&chapter.CreatedAt,
 			&chapter.UpdatedAt,
-			&chapter.AuthorReaction,
-			&chapter.AuthorComment,
 		); err != nil {
 			rows.Close()
 			return err
@@ -2690,7 +2583,7 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 	for _, chapter := range chapters {
 		chapterRes, err := tx.Exec(`
-			INSERT INTO review_chapters (
+			INSERT INTO review_submission_chapters (
 				submission_id, label, note_anchor_text, note_body, position,
 				author_reaction, author_comment, created_at, updated_at
 			)
@@ -2706,7 +2599,7 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 		pageRows, err := tx.Query(`
 			SELECT page_number, anchor_text, comment_body, position, created_at, updated_at
-			FROM review_pages
+			FROM review_draft_pages
 			WHERE chapter_id = ?
 			ORDER BY page_number ASC, position ASC, id ASC
 		`, chapter.ID)
@@ -2738,7 +2631,7 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 		for _, page := range pages {
 			if _, err := tx.Exec(`
-				INSERT INTO review_pages (
+				INSERT INTO review_submission_pages (
 					chapter_id, page_number, anchor_text, comment_body, position,
 					author_reaction, author_comment, created_at, updated_at
 				)
@@ -2754,11 +2647,19 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 func (app *application) listSubmittedFeedbackForBook(bookID int64) ([]SubmittedFeedbackGroup, error) {
 	rows, err := app.db.Query(`
-		SELECT fs.id, fs.reviewer_user_id, fs.submitted_at, u.name, u.email
-		FROM feedback_submissions fs
-		JOIN users u ON u.id = fs.reviewer_user_id
-		WHERE fs.book_id = ? AND fs.status = 'submitted'
-		ORDER BY fs.submitted_at DESC, fs.id DESC
+		SELECT rs.id, rs.reviewer_user_id, rs.submitted_at, u.name, u.email
+		FROM review_submissions rs
+		JOIN users u ON u.id = rs.reviewer_user_id
+		WHERE rs.book_id = ?
+		  AND rs.id = (
+			SELECT rs2.id
+			FROM review_submissions rs2
+			WHERE rs2.book_id = rs.book_id
+			  AND rs2.reviewer_user_id = rs.reviewer_user_id
+			ORDER BY rs2.submitted_at DESC, rs2.id DESC
+			LIMIT 1
+		  )
+		ORDER BY rs.submitted_at DESC, rs.id DESC
 	`, bookID)
 	if err != nil {
 		return nil, err
@@ -2782,7 +2683,7 @@ func (app *application) listSubmittedFeedbackForBook(bookID int64) ([]SubmittedF
 	}
 
 	for i := range groups {
-		chapters, err := app.listReviewChapters(groups[i].SubmissionID)
+		chapters, err := app.listSubmittedReviewChapters(groups[i].SubmissionID)
 		if err != nil {
 			return nil, err
 		}
@@ -2794,11 +2695,19 @@ func (app *application) listSubmittedFeedbackForBook(bookID int64) ([]SubmittedF
 
 func (app *application) listSubmittedFeedbackForReviewer(bookID, reviewerUserID int64) ([]SubmittedFeedbackGroup, error) {
 	rows, err := app.db.Query(`
-		SELECT fs.id, fs.reviewer_user_id, fs.submitted_at, u.name, u.email
-		FROM feedback_submissions fs
-		JOIN users u ON u.id = fs.reviewer_user_id
-		WHERE fs.book_id = ? AND fs.reviewer_user_id = ? AND fs.status = 'submitted'
-		ORDER BY fs.submitted_at DESC, fs.id DESC
+		SELECT rs.id, rs.reviewer_user_id, rs.submitted_at, u.name, u.email
+		FROM review_submissions rs
+		JOIN users u ON u.id = rs.reviewer_user_id
+		WHERE rs.book_id = ? AND rs.reviewer_user_id = ?
+		  AND rs.id = (
+			SELECT rs2.id
+			FROM review_submissions rs2
+			WHERE rs2.book_id = rs.book_id
+			  AND rs2.reviewer_user_id = rs.reviewer_user_id
+			ORDER BY rs2.submitted_at DESC, rs2.id DESC
+			LIMIT 1
+		  )
+		ORDER BY rs.submitted_at DESC, rs.id DESC
 	`, bookID, reviewerUserID)
 	if err != nil {
 		return nil, err
@@ -2822,7 +2731,7 @@ func (app *application) listSubmittedFeedbackForReviewer(bookID, reviewerUserID 
 	}
 
 	for i := range groups {
-		chapters, err := app.listReviewChapters(groups[i].SubmissionID)
+		chapters, err := app.listSubmittedReviewChapters(groups[i].SubmissionID)
 		if err != nil {
 			return nil, err
 		}
