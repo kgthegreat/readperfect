@@ -35,6 +35,7 @@ var assets embed.FS
 const (
 	sessionCookieName    = "readperfect_session"
 	googleStateCookie    = "readperfect_google_state"
+	flashCookieName      = "readperfect_flash"
 	defaultSessionLength = 24 * time.Hour * 14
 )
 
@@ -45,7 +46,10 @@ var (
 
 type contextKey string
 
-const userContextKey contextKey = "current_user"
+const (
+	userContextKey  contextKey = "current_user"
+	flashContextKey contextKey = "flash_message"
+)
 
 type application struct {
 	db                  *sql.DB
@@ -242,7 +246,7 @@ func (app *application) routes() http.Handler {
 	mux.Handle("/books", app.requireAuth(http.HandlerFunc(app.createBook)))
 	mux.Handle("/books/", app.requireAuth(http.HandlerFunc(app.booksRouter)))
 
-	return app.loadUser(mux)
+	return app.loadFlash(app.loadUser(mux))
 }
 
 func (app *application) home(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +525,7 @@ func (app *application) createBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/app?flash=Book+created.", http.StatusSeeOther)
+	app.redirectWithFlash(w, r, "/app", "Book created.")
 }
 
 func (app *application) booksRouter(w http.ResponseWriter, r *http.Request) {
@@ -702,7 +706,7 @@ func (app *application) createQuestion(w http.ResponseWriter, r *http.Request, b
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Question+added.", bookID), http.StatusSeeOther)
+	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Question added.")
 }
 
 func (app *application) createInvitation(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -846,7 +850,7 @@ func (app *application) acceptInvite(w http.ResponseWriter, r *http.Request, raw
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/reviews/%d?flash=Invite+accepted.", invitation.BookID), http.StatusSeeOther)
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", invitation.BookID), "Invite accepted.")
 }
 
 func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -961,7 +965,7 @@ func (app *application) createReviewEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/reviews/%d?flash=Note+saved.", bookID), http.StatusSeeOther)
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Note saved.")
 }
 
 func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -981,7 +985,7 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if len(entries) == 0 {
-		http.Redirect(w, r, fmt.Sprintf("/reviews/%d?flash=Add+at+least+one+note+before+submitting.", bookID), http.StatusSeeOther)
+		app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Add at least one note before submitting.")
 		return
 	}
 
@@ -990,7 +994,7 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/reviews/%d?flash=Feedback+submitted.", bookID), http.StatusSeeOther)
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Feedback submitted.")
 }
 
 func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, entryID int64) {
@@ -1015,18 +1019,18 @@ func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, e
 	comment := strings.TrimSpace(r.FormValue("comment"))
 
 	if reaction != "" && reaction != "insightful" {
-		http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Unsupported+reaction.", bookID), http.StatusSeeOther)
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported reaction.")
 		return
 	}
 	if len(comment) > 2000 {
-		http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Comment+is+too+long.", bookID), http.StatusSeeOther)
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
 		return
 	}
 
 	switch action {
 	case "toggle_reaction":
 		if reaction == "" {
-			http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Unsupported+reaction.", bookID), http.StatusSeeOther)
+			app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported reaction.")
 			return
 		}
 		if entry.AuthorReaction.Valid && entry.AuthorReaction.String == reaction {
@@ -1036,7 +1040,7 @@ func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, e
 	case "save_comment":
 		reaction = currentNullString(entry.AuthorReaction)
 	default:
-		http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Unsupported+response+action.", bookID), http.StatusSeeOther)
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response action.")
 		return
 	}
 
@@ -1045,7 +1049,7 @@ func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, e
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/books/%d?flash=Response+saved.", bookID), http.StatusSeeOther)
+	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
 }
 
 func (app *application) googleStart(w http.ResponseWriter, r *http.Request) {
@@ -1082,26 +1086,26 @@ func (app *application) googleCallback(w http.ResponseWriter, r *http.Request) {
 
 	stateCookie, err := r.Cookie(googleStateCookie)
 	if err != nil || stateCookie.Value == "" || stateCookie.Value != r.URL.Query().Get("state") {
-		http.Redirect(w, r, "/login?flash=Google+sign-in+could+not+be+verified.", http.StatusSeeOther)
+		app.redirectWithFlash(w, r, "/login", "Google sign-in could not be completed. Please try again.")
 		return
 	}
 	app.expireCookie(w, googleStateCookie)
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		http.Redirect(w, r, "/login?flash=Google+did+not+return+a+valid+login.", http.StatusSeeOther)
+		app.redirectWithFlash(w, r, "/login", "Google sign-in could not be completed. Please try again.")
 		return
 	}
 
 	token, err := app.googleOAuth.Exchange(r.Context(), code)
 	if err != nil {
-		http.Redirect(w, r, "/login?flash=Google+sign-in+failed.", http.StatusSeeOther)
+		app.redirectWithFlash(w, r, "/login", "Google sign-in could not be completed. Please try again.")
 		return
 	}
 
 	profile, err := fetchGoogleProfile(r.Context(), app.googleOAuth, token)
 	if err != nil {
-		http.Redirect(w, r, "/login?flash=Google+account+details+could+not+be+read.", http.StatusSeeOther)
+		app.redirectWithFlash(w, r, "/login", "Google sign-in could not be completed. Please try again.")
 		return
 	}
 
@@ -1122,11 +1126,32 @@ func (app *application) googleCallback(w http.ResponseWriter, r *http.Request) {
 func (app *application) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if app.currentUser(r) == nil {
-			http.Redirect(w, r, "/login?flash=Sign+in+to+continue.", http.StatusSeeOther)
+			app.redirectWithFlash(w, r, "/login", "Sign in to continue.")
 			return
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *application) loadFlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(flashCookieName)
+		if err != nil || cookie.Value == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+		if err != nil {
+			app.expireCookie(w, flashCookieName)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		app.expireCookie(w, flashCookieName)
+		ctx := context.WithValue(r.Context(), flashContextKey, string(raw))
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -1159,14 +1184,46 @@ func (app *application) currentUser(r *http.Request) *User {
 	return user
 }
 
+func (app *application) currentFlash(r *http.Request) string {
+	flash, ok := r.Context().Value(flashContextKey).(string)
+	if !ok {
+		return ""
+	}
+
+	return flash
+}
+
 func (app *application) newTemplateData(r *http.Request) *templateData {
 	return &templateData{
 		CurrentUser:        app.currentUser(r),
 		GoogleLoginEnabled: app.googleOAuth != nil && app.googleLoginEnabled,
-		Flash:              r.URL.Query().Get("flash"),
+		Flash:              app.currentFlash(r),
 		Form:               map[string]string{},
 		Errors:             map[string]string{},
 	}
+}
+
+func (app *application) redirectWithFlash(w http.ResponseWriter, r *http.Request, path string, message string) {
+	app.setFlash(w, message)
+	http.Redirect(w, r, path, http.StatusSeeOther)
+}
+
+func (app *application) setFlash(w http.ResponseWriter, message string) {
+	if strings.TrimSpace(message) == "" {
+		app.expireCookie(w, flashCookieName)
+		return
+	}
+
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(message))
+	http.SetCookie(w, &http.Cookie{
+		Name:     flashCookieName,
+		Value:    encoded,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   app.sessionCookieSecure,
+		MaxAge:   60,
+	})
 }
 
 func (app *application) render(w http.ResponseWriter, status int, page string, data *templateData) {
