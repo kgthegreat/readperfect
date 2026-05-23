@@ -141,47 +141,92 @@
                   <span class="muted-meta">{{ .SubmittedAt.Format "02 Jan 2006 15:04" }}</span>
                 </div>
                 <div class="question-list">
-                  {{ range .Entries }}
-                    <article class="list-item-card submitted-note-card">
-                      <div class="list-item-head">
-                        <span class="note-type">{{ .EntryType }} note</span>
-                        {{ if .PageNumber.Valid }}
-                          <span class="muted-meta">Page {{ .PageNumber.Int64 }}</span>
-                        {{ else if .ChapterLabel.Valid }}
-                          <span class="muted-meta">{{ .ChapterLabel.String }}</span>
-                        {{ end }}
+                  {{ range .Chapters }}
+                    <article class="list-item-card submitted-note-card chapter-group-card">
+                      <div class="chapter-group-heading">
+                        <span class="note-type">Chapter</span>
+                        <h3>{{ .Label }}</h3>
                       </div>
-                      {{ if .AnchorText.Valid }}
-                        <p class="note-anchor">"{{ .AnchorText.String }}"</p>
-                      {{ end }}
-                      <p>{{ .CommentBody }}</p>
-                      <div class="response-form">
-                        <div class="response-actions">
-                          <form action="/entries/{{ .ID }}/respond" method="post">
-                            <input type="hidden" name="action" value="toggle_reaction">
-                            <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
-                          </form>
-                          <details class="respond-disclosure">
-                            <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>
-                            <form class="compact-response-form" action="/entries/{{ .ID }}/respond" method="post">
-                              <input type="hidden" name="action" value="save_comment">
-                              <div class="field-stack compact-field">
-                                <label for="comment-{{ .ID }}">Reply for the reviewer</label>
-                                <textarea id="comment-{{ .ID }}" name="comment" rows="3">{{ if .AuthorComment.Valid }}{{ .AuthorComment.String }}{{ end }}</textarea>
+
+                      {{ if .NoteBody.Valid }}
+                        <div class="chapter-note-body">
+                          {{ if .NoteAnchorText.Valid }}
+                            <p class="note-anchor">"{{ .NoteAnchorText.String }}"</p>
+                          {{ end }}
+                          <p>{{ .NoteBody.String }}</p>
+                          <div class="response-form">
+                            <div class="response-actions">
+                              <form action="/review-chapters/{{ .ID }}/respond" method="post">
+                                <input type="hidden" name="action" value="toggle_reaction">
+                                <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
+                              </form>
+                              <details class="respond-disclosure">
+                                <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>
+                                <form class="compact-response-form" action="/review-chapters/{{ .ID }}/respond" method="post">
+                                  <input type="hidden" name="action" value="save_comment">
+                                  <div class="field-stack compact-field">
+                                    <label for="comment-chapter-{{ .ID }}">Reply for the reviewer</label>
+                                    <textarea id="comment-chapter-{{ .ID }}" name="comment" rows="3">{{ if .AuthorComment.Valid }}{{ .AuthorComment.String }}{{ end }}</textarea>
+                                  </div>
+                                  <div class="form-actions compact-actions">
+                                    <button class="primary-button compact-primary" type="submit">Save comment</button>
+                                  </div>
+                                </form>
+                              </details>
+                            </div>
+                            {{ if .AuthorComment.Valid }}
+                              <div class="author-response-note">
+                                <span class="author-response-label">Your reply</span>
+                                <p class="author-comment">{{ .AuthorComment.String }}</p>
                               </div>
-                              <div class="form-actions compact-actions">
-                                <button class="primary-button compact-primary" type="submit">Save comment</button>
-                              </div>
-                            </form>
-                          </details>
-                        </div>
-                        {{ if .AuthorComment.Valid }}
-                          <div class="author-response-note">
-                            <span class="author-response-label">Your reply</span>
-                            <p class="author-comment">{{ .AuthorComment.String }}</p>
+                            {{ end }}
                           </div>
-                        {{ end }}
-                      </div>
+                        </div>
+                      {{ end }}
+
+                      {{ if .Pages }}
+                        <div class="chapter-entry-list">
+                          {{ range .Pages }}
+                            <article class="nested-note-card">
+                              <div class="list-item-head">
+                                <span class="note-type">Page note</span>
+                                <span class="muted-meta">Page {{ .PageNumber }}</span>
+                              </div>
+                              {{ if .AnchorText.Valid }}
+                                <p class="note-anchor">"{{ .AnchorText.String }}"</p>
+                              {{ end }}
+                              <p>{{ .CommentBody }}</p>
+                              <div class="response-form">
+                                <div class="response-actions">
+                                  <form action="/review-pages/{{ .ID }}/respond" method="post">
+                                    <input type="hidden" name="action" value="toggle_reaction">
+                                    <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
+                                  </form>
+                                  <details class="respond-disclosure">
+                                    <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>
+                                    <form class="compact-response-form" action="/review-pages/{{ .ID }}/respond" method="post">
+                                      <input type="hidden" name="action" value="save_comment">
+                                      <div class="field-stack compact-field">
+                                        <label for="comment-page-{{ .ID }}">Reply for the reviewer</label>
+                                        <textarea id="comment-page-{{ .ID }}" name="comment" rows="3">{{ if .AuthorComment.Valid }}{{ .AuthorComment.String }}{{ end }}</textarea>
+                                      </div>
+                                      <div class="form-actions compact-actions">
+                                        <button class="primary-button compact-primary" type="submit">Save comment</button>
+                                      </div>
+                                    </form>
+                                  </details>
+                                </div>
+                                {{ if .AuthorComment.Valid }}
+                                  <div class="author-response-note">
+                                    <span class="author-response-label">Your reply</span>
+                                    <p class="author-comment">{{ .AuthorComment.String }}</p>
+                                  </div>
+                                {{ end }}
+                              </div>
+                            </article>
+                          {{ end }}
+                        </div>
+                      {{ end }}
                     </article>
                   {{ end }}
                 </div>
@@ -189,7 +234,7 @@
             {{ end }}
           </div>
         {{ else }}
-          <p class="empty-copy">No submitted feedback yet.</p>
+          <p class="empty-copy">No feedback has been submitted yet.</p>
         {{ end }}
       </section>
     </div>

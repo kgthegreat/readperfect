@@ -982,6 +982,44 @@ form {
   border-color: rgba(221, 212, 199, 0.9);
 }
 
+.chapter-group-card {
+  display: grid;
+  gap: 14px;
+}
+
+.chapter-group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chapter-group-heading h3 {
+  margin: 0;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.chapter-note-body {
+  display: grid;
+  gap: 8px;
+}
+
+.chapter-entry-list {
+  display: grid;
+  gap: 10px;
+  padding-left: 18px;
+  border-left: 2px solid rgba(221, 212, 199, 0.8);
+}
+
+.nested-note-card {
+  border: 1px solid rgba(221, 212, 199, 0.85);
+  border-radius: 8px;
+  background: rgba(252, 250, 246, 0.78);
+  padding: 14px;
+}
+
 .note-anchor {
   margin: 8px 0 0;
   color: var(--text-muted);
@@ -1105,6 +1143,189 @@ form {
   padding: 0 14px;
 }
 
+.compact-note-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(221, 212, 199, 0.72);
+}
+
+.field-grid.two-up {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field-grid.page-note-grid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.compact-number-field input {
+  text-align: center;
+}
+
+.reviewer-flow {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.chapter-rail-panel,
+.chapter-focus-panel {
+  min-height: 100%;
+}
+
+.chapter-rail-heading h2,
+.chapter-focus-header h2,
+.chapter-empty-state h2 {
+  font-size: 1.65rem;
+}
+
+.chapter-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chapter-rail-link {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(221, 212, 199, 0.9);
+  background: rgba(252, 250, 246, 0.72);
+  color: var(--text);
+}
+
+.chapter-rail-link:hover {
+  background: rgba(239, 231, 219, 0.72);
+}
+
+.chapter-rail-link.is-active {
+  border-color: rgba(127, 152, 142, 0.42);
+  background: rgba(127, 152, 142, 0.12);
+}
+
+.chapter-rail-title {
+  font-weight: 600;
+}
+
+.chapter-rail-meta {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.chapter-create-form {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(221, 212, 199, 0.72);
+}
+
+.chapter-focus-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.chapter-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.inline-disclosure {
+  position: relative;
+}
+
+.inline-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--accent-strong);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.inline-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.chapter-note-disclosure[open] {
+  width: min(460px, 100%);
+}
+
+.chapter-note-disclosure[open] .book-form {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(221, 212, 199, 0.84);
+  background: rgba(252, 250, 246, 0.96);
+}
+
+.chapter-summary-card {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 8px;
+  border: 1px solid rgba(221, 212, 199, 0.9);
+  background: rgba(252, 250, 246, 0.76);
+}
+
+.editor-disclosure {
+  margin-top: 18px;
+  border: 1px solid rgba(221, 212, 199, 0.82);
+  border-radius: 8px;
+  background: rgba(252, 250, 246, 0.7);
+  overflow: hidden;
+}
+
+.editor-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 18px;
+  font-weight: 600;
+}
+
+.editor-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-disclosure .book-form {
+  padding: 0 18px 18px;
+}
+
+.chapter-pages-block {
+  margin-top: 24px;
+}
+
+.chapter-pages-heading h3 {
+  margin: 0;
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 500;
+  font-size: 1.35rem;
+}
+
+.page-note-list {
+  margin-top: 14px;
+}
+
+.page-note-card {
+  background: rgba(252, 250, 246, 0.82);
+}
+
+.chapter-empty-state {
+  padding: 28px;
+  border: 1px dashed rgba(221, 212, 199, 0.95);
+  border-radius: 8px;
+  background: rgba(252, 250, 246, 0.56);
+}
+
 .reaction-pill {
   display: inline-flex;
   align-items: center;
@@ -1176,6 +1397,10 @@ form {
   .workspace-columns {
     grid-template-columns: 1fr;
   }
+
+  .reviewer-flow {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1211,5 +1436,10 @@ form {
 
   .book-row {
     align-items: start;
+  }
+
+  .field-grid.two-up,
+  .field-grid.page-note-grid {
+    grid-template-columns: 1fr;
   }
 }

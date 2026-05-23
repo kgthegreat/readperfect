@@ -61,25 +61,26 @@ type application struct {
 }
 
 type templateData struct {
-	CurrentUser        *User
-	GoogleLoginEnabled bool
-	Flash              string
-	Form               map[string]string
-	Errors             map[string]string
-	Stats              dashboardStats
-	Books              []Book
-	Book               *Book
-	Questions          []AuthorQuestion
-	Invitations        []ReviewInvitation
-	GeneratedInviteURL string
-	Invitation         *ReviewInvitation
-	InviteBook         *Book
-	NextPath           string
-	InviteAccepted     bool
-	ReviewBook         *Book
-	ReviewerSubmission *FeedbackSubmission
-	ReviewEntries      []FeedbackEntry
-	SubmittedFeedback  []SubmittedFeedbackGroup
+	CurrentUser         *User
+	GoogleLoginEnabled  bool
+	Flash               string
+	Form                map[string]string
+	Errors              map[string]string
+	Stats               dashboardStats
+	Books               []Book
+	Book                *Book
+	Questions           []AuthorQuestion
+	Invitations         []ReviewInvitation
+	GeneratedInviteURL  string
+	Invitation          *ReviewInvitation
+	InviteBook          *Book
+	NextPath            string
+	InviteAccepted      bool
+	ReviewBook          *Book
+	ReviewerSubmission  *FeedbackSubmission
+	ReviewChapters      []ReviewChapter
+	ActiveReviewChapter *ReviewChapter
+	SubmittedFeedback   []SubmittedFeedbackGroup
 }
 
 type dashboardStats struct {
@@ -155,13 +156,40 @@ type FeedbackEntry struct {
 	AuthorComment  sql.NullString
 }
 
+type ReviewChapter struct {
+	ID             int64
+	SubmissionID   int64
+	Label          string
+	NoteAnchorText sql.NullString
+	NoteBody       sql.NullString
+	Position       int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	AuthorReaction sql.NullString
+	AuthorComment  sql.NullString
+	Pages          []ReviewPage
+}
+
+type ReviewPage struct {
+	ID             int64
+	ChapterID      int64
+	PageNumber     int
+	AnchorText     sql.NullString
+	CommentBody    string
+	Position       int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	AuthorReaction sql.NullString
+	AuthorComment  sql.NullString
+}
+
 type SubmittedFeedbackGroup struct {
 	SubmissionID   int64
 	ReviewerUserID int64
 	ReviewerName   string
 	ReviewerEmail  string
 	SubmittedAt    time.Time
-	Entries        []FeedbackEntry
+	Chapters       []ReviewChapter
 }
 
 func main() {
@@ -240,6 +268,8 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("/auth/google/callback", app.googleCallback)
 	mux.HandleFunc("/invites/", app.invitesRouter)
 	mux.Handle("/entries/", app.requireAuth(http.HandlerFunc(app.entriesRouter)))
+	mux.Handle("/review-chapters/", app.requireAuth(http.HandlerFunc(app.reviewChaptersRouter)))
+	mux.Handle("/review-pages/", app.requireAuth(http.HandlerFunc(app.reviewPagesRouter)))
 	mux.Handle("/app", app.requireAuth(http.HandlerFunc(app.dashboard)))
 	mux.Handle("/reviews/", app.requireAuth(http.HandlerFunc(app.reviewsRouter)))
 	mux.Handle("/books/new", app.requireAuth(http.HandlerFunc(app.newBook)))
@@ -605,13 +635,61 @@ func (app *application) reviewsRouter(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
 		app.showReviewerWorkspace(w, r, bookID)
-	case len(parts) == 2 && parts[1] == "entries" && r.Method == http.MethodPost:
-		app.createReviewEntry(w, r, bookID)
+	case len(parts) == 2 && parts[1] == "chapters" && r.Method == http.MethodPost:
+		app.createReviewChapter(w, r, bookID)
 	case len(parts) == 2 && parts[1] == "submit" && r.Method == http.MethodPost:
 		app.submitReviewerDraft(w, r, bookID)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (app *application) reviewChaptersRouter(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/review-chapters/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+
+	chapterID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case parts[1] == "note" && r.Method == http.MethodPost:
+		app.saveReviewChapterNote(w, r, chapterID)
+	case parts[1] == "pages" && r.Method == http.MethodPost:
+		app.createReviewPage(w, r, chapterID)
+	case parts[1] == "respond" && r.Method == http.MethodPost:
+		app.respondToChapter(w, r, chapterID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (app *application) reviewPagesRouter(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/review-pages/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+
+	pageID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if parts[1] == "respond" && r.Method == http.MethodPost {
+		app.respondToPage(w, r, pageID)
+		return
+	}
+
+	http.NotFound(w, r)
 }
 
 func (app *application) entriesRouter(w http.ResponseWriter, r *http.Request) {
@@ -865,14 +943,22 @@ func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	submission, entries, err := app.ensureDraftSubmission(bookID, user.ID)
+	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
 	if err != nil {
 		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
 		return
 	}
-	submittedFeedback, err := app.listSubmittedFeedbackForReviewer(bookID, user.ID)
+	app.renderReviewWorkspace(w, r, book, submission, parseInt64(r.URL.Query().Get("chapter")), nil, nil, http.StatusOK)
+}
+
+func (app *application) renderReviewWorkspace(w http.ResponseWriter, r *http.Request, book *Book, submission *FeedbackSubmission, activeChapterID int64, errorsMap map[string]string, formValues map[string]string, status int) {
+	chapters, err := app.listReviewChapters(submission.ID)
 	if err != nil {
-		log.Printf("showReviewerWorkspace submitted feedback book=%d reviewer=%d err=%v", bookID, user.ID, err)
+		http.Error(w, "could not load review chapters", http.StatusInternalServerError)
+		return
+	}
+	submittedFeedback, err := app.listSubmittedFeedbackForReviewer(book.ID, submission.ReviewerUserID)
+	if err != nil {
 		http.Error(w, "could not load submitted feedback", http.StatusInternalServerError)
 		return
 	}
@@ -880,12 +966,25 @@ func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Req
 	data := app.newTemplateData(r)
 	data.ReviewBook = book
 	data.ReviewerSubmission = submission
-	data.ReviewEntries = entries
+	data.ReviewChapters = chapters
+	data.ActiveReviewChapter = selectActiveReviewChapter(chapters, activeChapterID)
 	data.SubmittedFeedback = submittedFeedback
-	app.render(w, http.StatusOK, "review_show", data)
+	data.Errors = errorsMap
+	data.Form = formValues
+	if data.Form == nil {
+		data.Form = map[string]string{}
+	}
+	if data.ActiveReviewChapter != nil && strings.TrimSpace(data.Form["page_number"]) == "" {
+		data.Form["page_number"] = strconv.Itoa(nextSuggestedPageNumber(data.ActiveReviewChapter.Pages))
+	}
+	if app.isHTMX(r) {
+		app.renderNamed(w, status, "review_show", "review_workspace", data)
+		return
+	}
+	app.render(w, status, "review_show", data)
 }
 
-func (app *application) createReviewEntry(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) createReviewChapter(w http.ResponseWriter, r *http.Request, bookID int64) {
 	user := app.currentUser(r)
 	book, err := app.getBookForReviewer(bookID, user.ID)
 	if err != nil {
@@ -897,9 +996,8 @@ func (app *application) createReviewEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	submission, entries, err := app.ensureDraftSubmission(bookID, user.ID)
+	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
 	if err != nil {
-		log.Printf("showReviewerWorkspace draft submission book=%d reviewer=%d err=%v", bookID, user.ID, err)
 		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
 		return
 	}
@@ -909,63 +1007,122 @@ func (app *application) createReviewEntry(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	entryType := strings.TrimSpace(r.FormValue("entry_type"))
-	pageValue := strings.TrimSpace(r.FormValue("page_number"))
 	chapterLabel := strings.TrimSpace(r.FormValue("chapter_label"))
+	if chapterLabel == "" {
+		app.renderReviewWorkspace(w, r, book, submission, 0, map[string]string{"new_chapter": "Enter a chapter label."}, map[string]string{"new_chapter_label": chapterLabel}, http.StatusUnprocessableEntity)
+		return
+	}
+	if len(chapterLabel) > 200 {
+		app.renderReviewWorkspace(w, r, book, submission, 0, map[string]string{"new_chapter": "Chapter label is too long."}, map[string]string{"new_chapter_label": chapterLabel}, http.StatusUnprocessableEntity)
+		return
+	}
+	exists, err := app.reviewChapterLabelExists(submission.ID, chapterLabel)
+	if err != nil {
+		http.Error(w, "could not validate chapter label", http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		app.renderReviewWorkspace(w, r, book, submission, 0, map[string]string{"new_chapter": "That chapter already exists in this review."}, map[string]string{"new_chapter_label": chapterLabel}, http.StatusUnprocessableEntity)
+		return
+	}
+
+	chapterID, err := app.insertReviewChapter(submission.ID, chapterLabel)
+	if err != nil {
+		if strings.Contains(strings.ToUpper(err.Error()), "UNIQUE") {
+			app.renderReviewWorkspace(w, r, book, submission, 0, map[string]string{"new_chapter": "That chapter already exists in this review."}, map[string]string{"new_chapter_label": chapterLabel}, http.StatusUnprocessableEntity)
+			return
+		}
+		http.Error(w, "could not create chapter", http.StatusInternalServerError)
+		return
+	}
+
+	if app.isHTMX(r) {
+		app.renderReviewWorkspace(w, r, book, submission, chapterID, nil, nil, http.StatusOK)
+		return
+	}
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", bookID, chapterID), "Chapter added.")
+}
+
+func (app *application) saveReviewChapterNote(w http.ResponseWriter, r *http.Request, chapterID int64) {
+	user := app.currentUser(r)
+	chapter, book, submission, err := app.getDraftReviewChapterForReviewer(chapterID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load chapter", http.StatusInternalServerError)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	anchorText := strings.TrimSpace(r.FormValue("anchor_text"))
+	commentBody := strings.TrimSpace(r.FormValue("comment_body"))
+	if len(commentBody) > 4000 {
+		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, map[string]string{"chapter_note": "Chapter note is too long."}, map[string]string{"chapter_anchor_text": anchorText, "chapter_comment_body": commentBody}, http.StatusUnprocessableEntity)
+		return
+	}
+
+	if err := app.updateReviewChapterNote(chapterID, anchorText, commentBody); err != nil {
+		http.Error(w, "could not save chapter note", http.StatusInternalServerError)
+		return
+	}
+
+	if app.isHTMX(r) {
+		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, nil, nil, http.StatusOK)
+		return
+	}
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", book.ID, chapter.ID), "Chapter note saved.")
+}
+
+func (app *application) createReviewPage(w http.ResponseWriter, r *http.Request, chapterID int64) {
+	user := app.currentUser(r)
+	chapter, book, submission, err := app.getDraftReviewChapterForReviewer(chapterID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load chapter", http.StatusInternalServerError)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	pageValue := strings.TrimSpace(r.FormValue("page_number"))
 	anchorText := strings.TrimSpace(r.FormValue("anchor_text"))
 	commentBody := strings.TrimSpace(r.FormValue("comment_body"))
 
-	data := app.newTemplateData(r)
-	data.ReviewBook = book
-	data.ReviewerSubmission = submission
-	data.ReviewEntries = entries
-	data.SubmittedFeedback, _ = app.listSubmittedFeedbackForReviewer(bookID, user.ID)
-	data.Form = map[string]string{
-		"entry_type":    entryType,
-		"page_number":   pageValue,
-		"chapter_label": chapterLabel,
-		"anchor_text":   anchorText,
-		"comment_body":  commentBody,
-	}
-	data.Errors = make(map[string]string)
-
-	if entryType != "page" && entryType != "chapter" {
-		data.Errors["entry_type"] = "Choose page note or chapter note."
+	pageNumber, err := strconv.Atoi(pageValue)
+	if err != nil || pageNumber <= 0 {
+		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, map[string]string{"page_number": "Enter a valid page number."}, map[string]string{"page_number": pageValue, "page_anchor_text": anchorText, "page_comment_body": commentBody}, http.StatusUnprocessableEntity)
+		return
 	}
 	if commentBody == "" {
-		data.Errors["comment_body"] = "Enter your note."
+		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, map[string]string{"page_note": "Enter the page note."}, map[string]string{"page_number": pageValue, "page_anchor_text": anchorText, "page_comment_body": commentBody}, http.StatusUnprocessableEntity)
+		return
 	}
-
-	var pageNumber *int
-	switch entryType {
-	case "page":
-		if pageValue == "" {
-			data.Errors["page_number"] = "Enter the page number."
-		} else {
-			n, err := strconv.Atoi(pageValue)
-			if err != nil || n <= 0 {
-				data.Errors["page_number"] = "Enter a valid page number."
-			} else {
-				pageNumber = &n
-			}
+	if err := app.insertReviewPage(chapterID, pageNumber, anchorText, commentBody); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			app.renderReviewWorkspace(w, r, book, submission, chapter.ID, map[string]string{"page_number": "That page already exists in this chapter."}, map[string]string{"page_number": pageValue, "page_anchor_text": anchorText, "page_comment_body": commentBody}, http.StatusUnprocessableEntity)
+			return
 		}
-	case "chapter":
-		if chapterLabel == "" {
-			data.Errors["chapter_label"] = "Enter the chapter label."
-		}
-	}
-
-	if len(data.Errors) > 0 {
-		app.render(w, http.StatusUnprocessableEntity, "review_show", data)
+		http.Error(w, "could not create page note", http.StatusInternalServerError)
 		return
 	}
 
-	if err := app.insertFeedbackEntry(submission.ID, entryType, pageNumber, chapterLabel, anchorText, commentBody); err != nil {
-		http.Error(w, "could not save note", http.StatusInternalServerError)
+	if app.isHTMX(r) {
+		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, nil, nil, http.StatusOK)
 		return
 	}
-
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Note saved.")
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", book.ID, chapter.ID), "Page note saved.")
 }
 
 func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -979,12 +1136,15 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	submission, entries, err := app.ensureDraftSubmission(bookID, user.ID)
+	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
 	if err != nil {
 		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
 		return
 	}
-	if len(entries) == 0 {
+	if ok, err := app.hasDraftReviewContent(submission.ID); err != nil {
+		http.Error(w, "could not inspect draft content", http.StatusInternalServerError)
+		return
+	} else if !ok {
 		app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Add at least one note before submitting.")
 		return
 	}
@@ -994,7 +1154,7 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Feedback submitted.")
+	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Feedback submitted. You can keep working on this draft.")
 }
 
 func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, entryID int64) {
@@ -1050,6 +1210,99 @@ func (app *application) respondToEntry(w http.ResponseWriter, r *http.Request, e
 	}
 
 	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
+}
+
+func (app *application) respondToChapter(w http.ResponseWriter, r *http.Request, chapterID int64) {
+	user := app.currentUser(r)
+	chapter, bookID, err := app.getSubmittedReviewChapterForAuthor(chapterID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load chapter", http.StatusInternalServerError)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	reaction, comment, ok := resolveAuthorResponse(r, chapter.AuthorReaction, chapter.AuthorComment)
+	if !ok {
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response.")
+		return
+	}
+	if len(comment) > 2000 {
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
+		return
+	}
+	if err := app.updateReviewChapterResponse(chapterID, reaction, comment); err != nil {
+		http.Error(w, "could not save response", http.StatusInternalServerError)
+		return
+	}
+	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
+}
+
+func (app *application) respondToPage(w http.ResponseWriter, r *http.Request, pageID int64) {
+	user := app.currentUser(r)
+	page, bookID, err := app.getSubmittedReviewPageForAuthor(pageID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load page note", http.StatusInternalServerError)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	reaction, comment, ok := resolveAuthorResponse(r, page.AuthorReaction, page.AuthorComment)
+	if !ok {
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response.")
+		return
+	}
+	if len(comment) > 2000 {
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
+		return
+	}
+	if err := app.updateReviewPageResponse(pageID, reaction, comment); err != nil {
+		http.Error(w, "could not save response", http.StatusInternalServerError)
+		return
+	}
+	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
+}
+
+func resolveAuthorResponse(r *http.Request, currentReaction sql.NullString, currentComment sql.NullString) (string, string, bool) {
+	action := strings.TrimSpace(r.FormValue("action"))
+	reaction := strings.TrimSpace(r.FormValue("reaction"))
+	comment := strings.TrimSpace(r.FormValue("comment"))
+
+	if reaction != "" && reaction != "insightful" {
+		return "", "", false
+	}
+
+	switch action {
+	case "toggle_reaction":
+		if reaction == "" {
+			return "", "", false
+		}
+		if currentReaction.Valid && currentReaction.String == reaction {
+			reaction = ""
+		}
+		comment = currentNullString(currentComment)
+	case "save_comment":
+		reaction = currentNullString(currentReaction)
+	default:
+		return "", "", false
+	}
+
+	return reaction, comment, true
 }
 
 func (app *application) googleStart(w http.ResponseWriter, r *http.Request) {
@@ -1239,6 +1492,23 @@ func (app *application) render(w http.ResponseWriter, status int, page string, d
 	}
 }
 
+func (app *application) renderNamed(w http.ResponseWriter, status int, page string, name string, data *templateData) {
+	tmpl, ok := app.templateCache[page]
+	if !ok {
+		http.Error(w, "template not found", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(status)
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("render %s:%s: %v", page, name, err)
+	}
+}
+
+func (app *application) isHTMX(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("HX-Request"), "true")
+}
+
 func newTemplateCache() (map[string]*template.Template, error) {
 	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact"}
 	cache := make(map[string]*template.Template, len(pages))
@@ -1399,6 +1669,35 @@ func runMigrations(db *sql.DB) error {
 			updated_at DATETIME NOT NULL,
 			FOREIGN KEY (feedback_entry_id) REFERENCES feedback_entries(id) ON DELETE CASCADE
 		);`,
+		`CREATE TABLE IF NOT EXISTS review_chapters (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			submission_id INTEGER NOT NULL,
+			label TEXT NOT NULL,
+			note_anchor_text TEXT,
+			note_body TEXT,
+			position INTEGER NOT NULL DEFAULT 0,
+			author_reaction TEXT,
+			author_comment TEXT,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			FOREIGN KEY (submission_id) REFERENCES feedback_submissions(id) ON DELETE CASCADE
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_chapters_submission_label
+			ON review_chapters(submission_id, label COLLATE NOCASE);`,
+		`CREATE TABLE IF NOT EXISTS review_pages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chapter_id INTEGER NOT NULL,
+			page_number INTEGER NOT NULL,
+			anchor_text TEXT,
+			comment_body TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT 0,
+			author_reaction TEXT,
+			author_comment TEXT,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE(chapter_id, page_number),
+			FOREIGN KEY (chapter_id) REFERENCES review_chapters(id) ON DELETE CASCADE
+		);`,
 	}
 
 	for _, stmt := range statements {
@@ -1475,7 +1774,6 @@ func (app *application) authenticateUser(email, password string) (*User, error) 
 		}
 		return nil, err
 	}
-
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
 		return nil, errInvalidCredentials
 	}
@@ -1964,11 +2262,248 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 		return nil, nil, err
 	}
 
-	entries, err := app.listFeedbackEntries(submission.ID)
+	return &submission, nil, nil
+}
+
+func (app *application) listReviewChapters(submissionID int64) ([]ReviewChapter, error) {
+	rows, err := app.db.Query(`
+		SELECT
+			id, submission_id, label, note_anchor_text, note_body, position, created_at, updated_at,
+			author_reaction, author_comment
+		FROM review_chapters
+		WHERE submission_id = ?
+		ORDER BY position ASC, id ASC
+	`, submissionID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return &submission, entries, nil
+	defer rows.Close()
+
+	var chapters []ReviewChapter
+	for rows.Next() {
+		var chapter ReviewChapter
+		if err := rows.Scan(
+			&chapter.ID,
+			&chapter.SubmissionID,
+			&chapter.Label,
+			&chapter.NoteAnchorText,
+			&chapter.NoteBody,
+			&chapter.Position,
+			&chapter.CreatedAt,
+			&chapter.UpdatedAt,
+			&chapter.AuthorReaction,
+			&chapter.AuthorComment,
+		); err != nil {
+			return nil, err
+		}
+		chapters = append(chapters, chapter)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range chapters {
+		pages, err := app.listReviewPages(chapters[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		chapters[i].Pages = pages
+	}
+	return chapters, nil
+}
+
+func (app *application) listReviewPages(chapterID int64) ([]ReviewPage, error) {
+	rows, err := app.db.Query(`
+		SELECT id, chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at,
+		       author_reaction, author_comment
+		FROM review_pages
+		WHERE chapter_id = ?
+		ORDER BY page_number ASC, position ASC, id ASC
+	`, chapterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pages []ReviewPage
+	for rows.Next() {
+		var page ReviewPage
+		if err := rows.Scan(
+			&page.ID,
+			&page.ChapterID,
+			&page.PageNumber,
+			&page.AnchorText,
+			&page.CommentBody,
+			&page.Position,
+			&page.CreatedAt,
+			&page.UpdatedAt,
+			&page.AuthorReaction,
+			&page.AuthorComment,
+		); err != nil {
+			return nil, err
+		}
+		pages = append(pages, page)
+	}
+	return pages, rows.Err()
+}
+
+func (app *application) insertReviewChapter(submissionID int64, label string) (int64, error) {
+	var nextPosition int
+	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_chapters WHERE submission_id = ?`, submissionID).Scan(&nextPosition); err != nil {
+		return 0, err
+	}
+
+	now := time.Now().UTC()
+	res, err := app.db.Exec(`
+		INSERT INTO review_chapters (submission_id, label, position, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, submissionID, label, nextPosition, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (app *application) reviewChapterLabelExists(submissionID int64, label string) (bool, error) {
+	var count int
+	err := app.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM review_chapters
+		WHERE submission_id = ? AND lower(trim(label)) = lower(trim(?))
+	`, submissionID, label).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (app *application) updateReviewChapterNote(chapterID int64, anchorText, noteBody string) error {
+	_, err := app.db.Exec(`
+		UPDATE review_chapters
+		SET note_anchor_text = ?, note_body = ?, updated_at = ?
+		WHERE id = ?
+	`, nullIfEmpty(anchorText), nullIfEmpty(noteBody), time.Now().UTC(), chapterID)
+	return err
+}
+
+func (app *application) insertReviewPage(chapterID int64, pageNumber int, anchorText, commentBody string) error {
+	var nextPosition int
+	if err := app.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM review_pages WHERE chapter_id = ?`, chapterID).Scan(&nextPosition); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	_, err := app.db.Exec(`
+		INSERT INTO review_pages (chapter_id, page_number, anchor_text, comment_body, position, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, chapterID, pageNumber, nullIfEmpty(anchorText), commentBody, nextPosition, now, now)
+	return err
+}
+
+func (app *application) hasDraftReviewContent(submissionID int64) (bool, error) {
+	var chapterCount int
+	if err := app.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM review_chapters
+		WHERE submission_id = ? AND (note_body IS NOT NULL OR EXISTS (SELECT 1 FROM review_pages rp WHERE rp.chapter_id = review_chapters.id))
+	`, submissionID).Scan(&chapterCount); err != nil {
+		return false, err
+	}
+	return chapterCount > 0, nil
+}
+
+func (app *application) getDraftReviewChapterForReviewer(chapterID, reviewerUserID int64) (*ReviewChapter, *Book, *FeedbackSubmission, error) {
+	var chapter ReviewChapter
+	var book Book
+	var submission FeedbackSubmission
+	var isbn, coverURL, description sql.NullString
+
+	err := app.db.QueryRow(`
+		SELECT
+			rc.id, rc.submission_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
+			rc.author_reaction, rc.author_comment,
+			fs.id, fs.book_id, fs.reviewer_user_id, fs.status, fs.submitted_at, fs.created_at, fs.updated_at,
+			b.id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+		FROM review_chapters rc
+		JOIN feedback_submissions fs ON fs.id = rc.submission_id
+		JOIN books b ON b.id = fs.book_id
+		WHERE rc.id = ? AND fs.reviewer_user_id = ? AND fs.status = 'draft'
+	`, chapterID, reviewerUserID).Scan(
+		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt, &chapter.AuthorReaction, &chapter.AuthorComment,
+		&submission.ID, &submission.BookID, &submission.ReviewerUserID, &submission.Status, &submission.SubmittedAt, &submission.CreatedAt, &submission.UpdatedAt,
+		&book.ID, &book.OwnerUserID, &book.Title, &book.AuthorName, &isbn, &coverURL, &description, &book.Status, &book.CreatedAt, &book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	book.ISBN = isbn.String
+	book.CoverURL = coverURL.String
+	book.Description = description.String
+	chapter.Pages, err = app.listReviewPages(chapter.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &chapter, &book, &submission, nil
+}
+
+func (app *application) getSubmittedReviewChapterForAuthor(chapterID, authorUserID int64) (*ReviewChapter, int64, error) {
+	var chapter ReviewChapter
+	var bookID int64
+	err := app.db.QueryRow(`
+		SELECT
+			rc.id, rc.submission_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
+			rc.author_reaction, rc.author_comment, fs.book_id
+		FROM review_chapters rc
+		JOIN feedback_submissions fs ON fs.id = rc.submission_id
+		JOIN books b ON b.id = fs.book_id
+		WHERE rc.id = ? AND fs.status = 'submitted' AND b.owner_user_id = ?
+	`, chapterID, authorUserID).Scan(
+		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt,
+		&chapter.AuthorReaction, &chapter.AuthorComment, &bookID,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	return &chapter, bookID, nil
+}
+
+func (app *application) getSubmittedReviewPageForAuthor(pageID, authorUserID int64) (*ReviewPage, int64, error) {
+	var page ReviewPage
+	var bookID int64
+	err := app.db.QueryRow(`
+		SELECT
+			rp.id, rp.chapter_id, rp.page_number, rp.anchor_text, rp.comment_body, rp.position, rp.created_at, rp.updated_at,
+			rp.author_reaction, rp.author_comment, fs.book_id
+		FROM review_pages rp
+		JOIN review_chapters rc ON rc.id = rp.chapter_id
+		JOIN feedback_submissions fs ON fs.id = rc.submission_id
+		JOIN books b ON b.id = fs.book_id
+		WHERE rp.id = ? AND fs.status = 'submitted' AND b.owner_user_id = ?
+	`, pageID, authorUserID).Scan(
+		&page.ID, &page.ChapterID, &page.PageNumber, &page.AnchorText, &page.CommentBody, &page.Position, &page.CreatedAt, &page.UpdatedAt,
+		&page.AuthorReaction, &page.AuthorComment, &bookID,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	return &page, bookID, nil
+}
+
+func (app *application) updateReviewChapterResponse(chapterID int64, reaction, comment string) error {
+	_, err := app.db.Exec(`
+		UPDATE review_chapters
+		SET author_reaction = ?, author_comment = ?, updated_at = ?
+		WHERE id = ?
+	`, nullIfEmpty(reaction), nullIfEmpty(comment), time.Now().UTC(), chapterID)
+	return err
+}
+
+func (app *application) updateReviewPageResponse(pageID int64, reaction, comment string) error {
+	_, err := app.db.Exec(`
+		UPDATE review_pages
+		SET author_reaction = ?, author_comment = ?, updated_at = ?
+		WHERE id = ?
+	`, nullIfEmpty(reaction), nullIfEmpty(comment), time.Now().UTC(), pageID)
+	return err
 }
 
 func (app *application) listFeedbackEntries(submissionID int64) ([]FeedbackEntry, error) {
@@ -2081,13 +2616,140 @@ func (app *application) upsertEntryResponse(entryID int64, reaction, comment str
 }
 
 func (app *application) submitFeedbackSubmission(submissionID int64) error {
-	now := time.Now().UTC()
-	_, err := app.db.Exec(`
-		UPDATE feedback_submissions
-		SET status = 'submitted', submitted_at = ?, updated_at = ?
+	tx, err := app.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var draft FeedbackSubmission
+	err = tx.QueryRow(`
+		SELECT id, book_id, reviewer_user_id, status, submitted_at, created_at, updated_at
+		FROM feedback_submissions
 		WHERE id = ? AND status = 'draft'
-	`, now, now, submissionID)
-	return err
+	`, submissionID).Scan(
+		&draft.ID,
+		&draft.BookID,
+		&draft.ReviewerUserID,
+		&draft.Status,
+		&draft.SubmittedAt,
+		&draft.CreatedAt,
+		&draft.UpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	res, err := tx.Exec(`
+		INSERT INTO feedback_submissions (book_id, reviewer_user_id, status, submitted_at, created_at, updated_at)
+		VALUES (?, ?, 'submitted', ?, ?, ?)
+	`, draft.BookID, draft.ReviewerUserID, now, now, now)
+	if err != nil {
+		return err
+	}
+	submittedID, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	rows, err := tx.Query(`
+		SELECT id, label, note_anchor_text, note_body, position, created_at, updated_at, author_reaction, author_comment
+		FROM review_chapters
+		WHERE submission_id = ?
+		ORDER BY position ASC, id ASC
+	`, draft.ID)
+	if err != nil {
+		return err
+	}
+
+	var chapters []ReviewChapter
+	for rows.Next() {
+		var chapter ReviewChapter
+		if err := rows.Scan(
+			&chapter.ID,
+			&chapter.Label,
+			&chapter.NoteAnchorText,
+			&chapter.NoteBody,
+			&chapter.Position,
+			&chapter.CreatedAt,
+			&chapter.UpdatedAt,
+			&chapter.AuthorReaction,
+			&chapter.AuthorComment,
+		); err != nil {
+			rows.Close()
+			return err
+		}
+		chapters = append(chapters, chapter)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, chapter := range chapters {
+		chapterRes, err := tx.Exec(`
+			INSERT INTO review_chapters (
+				submission_id, label, note_anchor_text, note_body, position,
+				author_reaction, author_comment, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, submittedID, chapter.Label, chapter.NoteAnchorText, chapter.NoteBody, chapter.Position, nil, nil, chapter.CreatedAt, chapter.UpdatedAt)
+		if err != nil {
+			return err
+		}
+		newChapterID, err := chapterRes.LastInsertId()
+		if err != nil {
+			return err
+		}
+
+		pageRows, err := tx.Query(`
+			SELECT page_number, anchor_text, comment_body, position, created_at, updated_at
+			FROM review_pages
+			WHERE chapter_id = ?
+			ORDER BY page_number ASC, position ASC, id ASC
+		`, chapter.ID)
+		if err != nil {
+			return err
+		}
+
+		var pages []ReviewPage
+		for pageRows.Next() {
+			var page ReviewPage
+			if err := pageRows.Scan(
+				&page.PageNumber,
+				&page.AnchorText,
+				&page.CommentBody,
+				&page.Position,
+				&page.CreatedAt,
+				&page.UpdatedAt,
+			); err != nil {
+				pageRows.Close()
+				return err
+			}
+			pages = append(pages, page)
+		}
+		if err := pageRows.Err(); err != nil {
+			pageRows.Close()
+			return err
+		}
+		pageRows.Close()
+
+		for _, page := range pages {
+			if _, err := tx.Exec(`
+				INSERT INTO review_pages (
+					chapter_id, page_number, anchor_text, comment_body, position,
+					author_reaction, author_comment, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, newChapterID, page.PageNumber, page.AnchorText, page.CommentBody, page.Position, nil, nil, page.CreatedAt, page.UpdatedAt); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (app *application) listSubmittedFeedbackForBook(bookID int64) ([]SubmittedFeedbackGroup, error) {
@@ -2120,11 +2782,11 @@ func (app *application) listSubmittedFeedbackForBook(bookID int64) ([]SubmittedF
 	}
 
 	for i := range groups {
-		entries, err := app.listFeedbackEntries(groups[i].SubmissionID)
+		chapters, err := app.listReviewChapters(groups[i].SubmissionID)
 		if err != nil {
 			return nil, err
 		}
-		groups[i].Entries = entries
+		groups[i].Chapters = chapters
 	}
 
 	return groups, nil
@@ -2160,11 +2822,11 @@ func (app *application) listSubmittedFeedbackForReviewer(bookID, reviewerUserID 
 	}
 
 	for i := range groups {
-		entries, err := app.listFeedbackEntries(groups[i].SubmissionID)
+		chapters, err := app.listReviewChapters(groups[i].SubmissionID)
 		if err != nil {
 			return nil, err
 		}
-		groups[i].Entries = entries
+		groups[i].Chapters = chapters
 	}
 
 	return groups, nil
@@ -2211,6 +2873,49 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+func parseInt64(value string) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func selectActiveReviewChapter(chapters []ReviewChapter, requestedID int64) *ReviewChapter {
+	if len(chapters) == 0 {
+		return nil
+	}
+	if requestedID != 0 {
+		for i := range chapters {
+			if chapters[i].ID == requestedID {
+				return &chapters[i]
+			}
+		}
+	}
+	return &chapters[0]
+}
+
+func nextSuggestedPageNumber(pages []ReviewPage) int {
+	if len(pages) == 0 {
+		return 1
+	}
+
+	maxPage := 0
+	for _, page := range pages {
+		if page.PageNumber > maxPage {
+			maxPage = page.PageNumber
+		}
+	}
+	if maxPage <= 0 {
+		return 1
+	}
+	return maxPage + 1
 }
 
 func currentNullString(value sql.NullString) string {

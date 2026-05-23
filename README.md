@@ -11,6 +11,27 @@ go run .
 
 The app listens on `http://localhost:8080` by default.
 
+## Run locally with auto-reload
+
+Install `reflex` once:
+
+```bash
+go install github.com/cespare/reflex@latest
+```
+
+Then run the watcher from the repo root:
+
+```bash
+~/go/bin/reflex -c reflex.conf
+```
+
+This watches:
+- `*.go`
+- `templates/*.html`
+- `static/*`
+
+and rebuilds/restarts the app on change.
+
 ## Authentication
 
 V1 uses both:
