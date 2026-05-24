@@ -374,6 +374,16 @@ form {
   padding: 18px;
 }
 
+.principle-card,
+.step-card {
+  min-height: 100%;
+}
+
+.principle-card .section-text {
+  max-width: none;
+  font-size: 1rem;
+}
+
 .split-intro,
 .cta-layout,
 .workspace-topbar,
@@ -394,8 +404,13 @@ form {
   margin-top: 32px;
 }
 
+.principles-grid,
+.trust-points {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .steps-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 28px;
 }
 
@@ -483,7 +498,6 @@ form {
 
 .trust-points {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
 }
 
