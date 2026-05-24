@@ -81,12 +81,22 @@ type templateData struct {
 	ReviewChapters      []ReviewChapter
 	ActiveReviewChapter *ReviewChapter
 	SubmittedFeedback   []SubmittedFeedbackGroup
+	AdminStats          adminStats
+	AdminUsers          []AdminUserRow
+	AdminBooks          []AdminBookRow
 }
 
 type dashboardStats struct {
 	BooksOwned         int
 	PendingInvitations int
 	SubmittedFeedback  int
+}
+
+type adminStats struct {
+	Users             int
+	Books             int
+	Reviewers         int
+	LatestSubmissions int
 }
 
 type User struct {
@@ -192,6 +202,29 @@ type SubmittedFeedbackGroup struct {
 	Chapters       []ReviewChapter
 }
 
+type AdminUserRow struct {
+	ID            int64
+	Email         string
+	Name          string
+	IsAdmin       bool
+	BooksOwned    int
+	ReviewerBooks int
+	CreatedAt     time.Time
+}
+
+type AdminBookRow struct {
+	ID                int64
+	Title             string
+	AuthorName        string
+	OwnerName         string
+	OwnerEmail        string
+	Status            string
+	ReviewerCount     int
+	InvitationCount   int
+	LatestSubmissions int
+	CreatedAt         time.Time
+}
+
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 
@@ -270,6 +303,9 @@ func (app *application) routes() http.Handler {
 	mux.Handle("/review-chapters/", app.requireAuth(http.HandlerFunc(app.reviewChaptersRouter)))
 	mux.Handle("/review-pages/", app.requireAuth(http.HandlerFunc(app.reviewPagesRouter)))
 	mux.Handle("/app", app.requireAuth(http.HandlerFunc(app.dashboard)))
+	mux.Handle("/admin", app.requireAdmin(http.HandlerFunc(app.adminDashboard)))
+	mux.Handle("/admin/users", app.requireAdmin(http.HandlerFunc(app.adminUsers)))
+	mux.Handle("/admin/books", app.requireAdmin(http.HandlerFunc(app.adminBooks)))
 	mux.Handle("/reviews/", app.requireAuth(http.HandlerFunc(app.reviewsRouter)))
 	mux.Handle("/books/new", app.requireAuth(http.HandlerFunc(app.newBook)))
 	mux.Handle("/books", app.requireAuth(http.HandlerFunc(app.createBook)))
@@ -484,6 +520,42 @@ func (app *application) dashboard(w http.ResponseWriter, r *http.Request) {
 	data.Stats = stats
 	data.Books = books
 	app.render(w, http.StatusOK, "dashboard", data)
+}
+
+func (app *application) adminDashboard(w http.ResponseWriter, r *http.Request) {
+	stats, err := app.adminStats()
+	if err != nil {
+		http.Error(w, "could not load admin dashboard", http.StatusInternalServerError)
+		return
+	}
+
+	data := app.newTemplateData(r)
+	data.AdminStats = stats
+	app.render(w, http.StatusOK, "admin", data)
+}
+
+func (app *application) adminUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := app.listAdminUsers()
+	if err != nil {
+		http.Error(w, "could not load users", http.StatusInternalServerError)
+		return
+	}
+
+	data := app.newTemplateData(r)
+	data.AdminUsers = users
+	app.render(w, http.StatusOK, "admin_users", data)
+}
+
+func (app *application) adminBooks(w http.ResponseWriter, r *http.Request) {
+	books, err := app.listAdminBooks()
+	if err != nil {
+		http.Error(w, "could not load books", http.StatusInternalServerError)
+		return
+	}
+
+	data := app.newTemplateData(r)
+	data.AdminBooks = books
+	app.render(w, http.StatusOK, "admin_books", data)
 }
 
 func (app *application) newBook(w http.ResponseWriter, r *http.Request) {
@@ -1309,6 +1381,17 @@ func (app *application) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+func (app *application) requireAdmin(next http.Handler) http.Handler {
+	return app.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := app.currentUser(r)
+		if user == nil || !user.IsAdmin {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
 func (app *application) loadFlash(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(flashCookieName)
@@ -1432,7 +1515,7 @@ func (app *application) isHTMX(r *http.Request) bool {
 }
 
 func newTemplateCache() (map[string]*template.Template, error) {
-	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact"}
+	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact", "admin", "admin_users", "admin_books"}
 	cache := make(map[string]*template.Template, len(pages))
 
 	for _, page := range pages {
@@ -1868,6 +1951,88 @@ func (app *application) dashboardStats(userID int64) (dashboardStats, error) {
 	}
 
 	return stats, nil
+}
+
+func (app *application) adminStats() (adminStats, error) {
+	stats := adminStats{}
+
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&stats.Users); err != nil {
+		return stats, err
+	}
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM books`).Scan(&stats.Books); err != nil {
+		return stats, err
+	}
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM book_reviewers`).Scan(&stats.Reviewers); err != nil {
+		return stats, err
+	}
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM review_submissions`).Scan(&stats.LatestSubmissions); err != nil {
+		return stats, err
+	}
+
+	return stats, nil
+}
+
+func (app *application) listAdminUsers() ([]AdminUserRow, error) {
+	rows, err := app.db.Query(`
+		SELECT
+			u.id, u.email, u.name, u.is_admin, u.created_at,
+			(SELECT COUNT(*) FROM books b WHERE b.owner_user_id = u.id) AS books_owned,
+			(SELECT COUNT(*) FROM book_reviewers br WHERE br.user_id = u.id) AS reviewer_books
+		FROM users u
+		ORDER BY u.created_at DESC, u.id DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []AdminUserRow
+	for rows.Next() {
+		var user AdminUserRow
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &user.IsAdmin, &user.CreatedAt, &user.BooksOwned, &user.ReviewerBooks); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (app *application) listAdminBooks() ([]AdminBookRow, error) {
+	rows, err := app.db.Query(`
+		SELECT
+			b.id, b.title, b.author_name, u.name, u.email, b.status, b.created_at,
+			(SELECT COUNT(*) FROM book_reviewers br WHERE br.book_id = b.id) AS reviewer_count,
+			(SELECT COUNT(*) FROM review_invitations ri WHERE ri.book_id = b.id) AS invitation_count,
+			(SELECT COUNT(*) FROM review_submissions rs WHERE rs.book_id = b.id) AS latest_submissions
+		FROM books b
+		JOIN users u ON u.id = b.owner_user_id
+		ORDER BY b.created_at DESC, b.id DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var books []AdminBookRow
+	for rows.Next() {
+		var book AdminBookRow
+		if err := rows.Scan(
+			&book.ID,
+			&book.Title,
+			&book.AuthorName,
+			&book.OwnerName,
+			&book.OwnerEmail,
+			&book.Status,
+			&book.CreatedAt,
+			&book.ReviewerCount,
+			&book.InvitationCount,
+			&book.LatestSubmissions,
+		); err != nil {
+			return nil, err
+		}
+		books = append(books, book)
+	}
+	return books, rows.Err()
 }
 
 func (app *application) listBooksByOwner(userID int64) ([]Book, error) {

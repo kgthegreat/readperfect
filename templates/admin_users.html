@@ -1,0 +1,64 @@
+{{ define "title" }}Admin Users | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/admin" aria-label="readperfect admin">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/admin">Admin</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/books">Books</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Email }}</span>
+        <form action="/logout" method="post">
+          <button class="quiet-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Platform admin</p>
+          <h1>Users</h1>
+          <p class="section-text">Account inventory for support and verification.</p>
+        </div>
+      </section>
+
+      <section class="form-panel">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">All users</p>
+            <h2>{{ len .AdminUsers }} accounts</h2>
+          </div>
+        </div>
+        <div class="question-list">
+          {{ range .AdminUsers }}
+            <article class="list-item-card">
+              <div class="list-item-head">
+                <div>
+                  <h3>{{ .Name }}</h3>
+                  <p class="muted-meta">{{ .Email }}</p>
+                </div>
+                {{ if .IsAdmin }}<span class="status-pill">admin</span>{{ end }}
+              </div>
+              <div class="book-card-meta">
+                <span class="muted-meta">Books {{ .BooksOwned }}</span>
+                <span class="muted-meta">Reviewer memberships {{ .ReviewerBooks }}</span>
+                <span class="muted-meta">Joined {{ .CreatedAt.Format "02 Jan 2006" }}</span>
+              </div>
+            </article>
+          {{ end }}
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+{{ end }}

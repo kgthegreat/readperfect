@@ -1,0 +1,79 @@
+{{ define "title" }}Admin | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/admin" aria-label="readperfect admin">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/admin">Admin</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/books">Books</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Email }}</span>
+        <form action="/logout" method="post">
+          <button class="quiet-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Platform admin</p>
+          <h1>Operational overview.</h1>
+          <p class="section-text">Read-heavy access for support, inspection, and data sanity checks.</p>
+        </div>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <p class="panel-label">Users</p>
+          <strong>{{ .AdminStats.Users }}</strong>
+          <span>accounts in the system</span>
+        </article>
+        <article class="stat-card">
+          <p class="panel-label">Books</p>
+          <strong>{{ .AdminStats.Books }}</strong>
+          <span>author workspaces</span>
+        </article>
+        <article class="stat-card">
+          <p class="panel-label">Reviewers</p>
+          <strong>{{ .AdminStats.Reviewers }}</strong>
+          <span>book reviewer memberships</span>
+        </article>
+        <article class="stat-card">
+          <p class="panel-label">Submissions</p>
+          <strong>{{ .AdminStats.LatestSubmissions }}</strong>
+          <span>submitted snapshots</span>
+        </article>
+      </section>
+
+      <section class="books-section">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Admin views</p>
+            <h2>Inspect users and books</h2>
+          </div>
+        </div>
+        <div class="book-list admin-link-grid">
+          <article class="book-card">
+            <h3><a href="/admin/users">Users</a></h3>
+            <p class="book-card-description">Searchable account inventory with author/reviewer footprint.</p>
+          </article>
+          <article class="book-card">
+            <h3><a href="/admin/books">Books</a></h3>
+            <p class="book-card-description">See ownership, reviewer participation, and submission activity.</p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+{{ end }}
