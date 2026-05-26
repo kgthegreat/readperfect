@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
@@ -111,6 +112,7 @@ type User struct {
 
 type Book struct {
 	ID          int64
+	PublicID    string
 	OwnerUserID int64
 	Title       string
 	AuthorName  string
@@ -142,6 +144,7 @@ type ReviewInvitation struct {
 
 type FeedbackSubmission struct {
 	ID             int64
+	PublicID       string
 	BookID         int64
 	ReviewerUserID int64
 	Status         string
@@ -224,6 +227,14 @@ type AdminBookRow struct {
 	InvitationCount   int
 	LatestSubmissions int
 	CreatedAt         time.Time
+}
+
+func (b Book) PublicPath() string {
+	return "/books/" + bookRouteKey(b.Title, b.PublicID)
+}
+
+func (s FeedbackSubmission) PublicPath() string {
+	return "/reviews/" + s.PublicID
 }
 
 func main() {
@@ -643,21 +654,21 @@ func (app *application) booksRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
+	bookPublicID := parseBookPublicID(parts[0])
+	if bookPublicID == "" {
 		http.NotFound(w, r)
 		return
 	}
 
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
-		app.showBook(w, r, bookID)
+		app.showBook(w, r, bookPublicID)
 	case len(parts) == 2 && parts[1] == "delete" && r.Method == http.MethodPost:
-		app.deleteBook(w, r, bookID)
+		app.deleteBook(w, r, bookPublicID)
 	case len(parts) == 2 && parts[1] == "questions" && r.Method == http.MethodPost:
-		app.createQuestion(w, r, bookID)
+		app.createQuestion(w, r, bookPublicID)
 	case len(parts) == 2 && parts[1] == "invitations" && r.Method == http.MethodPost:
-		app.createInvitation(w, r, bookID)
+		app.createInvitation(w, r, bookPublicID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -700,19 +711,19 @@ func (app *application) reviewsRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
+	reviewPublicID := strings.TrimSpace(parts[0])
+	if reviewPublicID == "" {
 		http.NotFound(w, r)
 		return
 	}
 
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
-		app.showReviewerWorkspace(w, r, bookID)
+		app.showReviewerWorkspace(w, r, reviewPublicID)
 	case len(parts) == 2 && parts[1] == "chapters" && r.Method == http.MethodPost:
-		app.createReviewChapter(w, r, bookID)
+		app.createReviewChapter(w, r, reviewPublicID)
 	case len(parts) == 2 && parts[1] == "submit" && r.Method == http.MethodPost:
-		app.submitReviewerDraft(w, r, bookID)
+		app.submitReviewerDraft(w, r, reviewPublicID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -766,9 +777,9 @@ func (app *application) reviewPagesRouter(w http.ResponseWriter, r *http.Request
 	http.NotFound(w, r)
 }
 
-func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForOwner(bookID, user.ID)
+	book, err := app.getBookForOwnerByPublicID(bookPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -778,24 +789,24 @@ func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookID 
 		return
 	}
 
-	questions, err := app.listQuestionsForBook(bookID)
+	questions, err := app.listQuestionsForBook(book.ID)
 	if err != nil {
 		http.Error(w, "could not load questions", http.StatusInternalServerError)
 		return
 	}
 
-	invitations, err := app.listInvitationsForBook(bookID)
+	invitations, err := app.listInvitationsForBook(book.ID)
 	if err != nil {
 		http.Error(w, "could not load invitations", http.StatusInternalServerError)
 		return
 	}
-	submittedFeedback, err := app.listSubmittedFeedbackForBook(bookID)
+	submittedFeedback, err := app.listSubmittedFeedbackForBook(book.ID)
 	if err != nil {
-		log.Printf("showBook submitted feedback book=%d err=%v", bookID, err)
+		log.Printf("showBook submitted feedback book=%d err=%v", book.ID, err)
 		http.Error(w, "could not load submitted feedback", http.StatusInternalServerError)
 		return
 	}
-	canDeleteBook, err := app.canDeleteBook(bookID, user.ID)
+	canDeleteBook, err := app.canDeleteBook(book.ID, user.ID)
 	if err != nil {
 		http.Error(w, "could not determine delete status", http.StatusInternalServerError)
 		return
@@ -810,9 +821,9 @@ func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookID 
 	app.render(w, http.StatusOK, "book_show", data)
 }
 
-func (app *application) deleteBook(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) deleteBook(w http.ResponseWriter, r *http.Request, bookPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForOwner(bookID, user.ID)
+	book, err := app.getBookForOwnerByPublicID(bookPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -822,17 +833,17 @@ func (app *application) deleteBook(w http.ResponseWriter, r *http.Request, bookI
 		return
 	}
 
-	canDeleteBook, err := app.canDeleteBook(bookID, user.ID)
+	canDeleteBook, err := app.canDeleteBook(book.ID, user.ID)
 	if err != nil {
 		http.Error(w, "could not determine delete status", http.StatusInternalServerError)
 		return
 	}
 	if !canDeleteBook {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", book.ID), "This book cannot be deleted after reviewer work has started.")
+		app.redirectWithFlash(w, r, book.PublicPath(), "This book cannot be deleted after reviewer work has started.")
 		return
 	}
 
-	if err := app.deleteBookForOwner(bookID, user.ID); err != nil {
+	if err := app.deleteBookForOwner(book.ID, user.ID); err != nil {
 		http.Error(w, "could not delete book", http.StatusInternalServerError)
 		return
 	}
@@ -840,9 +851,9 @@ func (app *application) deleteBook(w http.ResponseWriter, r *http.Request, bookI
 	app.redirectWithFlash(w, r, "/app", "Book deleted.")
 }
 
-func (app *application) createQuestion(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) createQuestion(w http.ResponseWriter, r *http.Request, bookPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForOwner(bookID, user.ID)
+	book, err := app.getBookForOwnerByPublicID(bookPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -867,17 +878,17 @@ func (app *application) createQuestion(w http.ResponseWriter, r *http.Request, b
 		return
 	}
 
-	if err := app.insertQuestion(bookID, question); err != nil {
+	if err := app.insertQuestion(book.ID, question); err != nil {
 		http.Error(w, "could not save question", http.StatusInternalServerError)
 		return
 	}
 
-	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Question added.")
+	app.redirectWithFlash(w, r, book.PublicPath(), "Question added.")
 }
 
-func (app *application) createInvitation(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) createInvitation(w http.ResponseWriter, r *http.Request, bookPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForOwner(bookID, user.ID)
+	book, err := app.getBookForOwnerByPublicID(bookPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -904,7 +915,7 @@ func (app *application) createInvitation(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := app.insertInvitation(bookID, user.ID, email, inviteToken); err != nil {
+	if err := app.insertInvitation(book.ID, user.ID, email, inviteToken); err != nil {
 		http.Error(w, "could not create invite", http.StatusInternalServerError)
 		return
 	}
@@ -1022,12 +1033,18 @@ func (app *application) acceptInvite(w http.ResponseWriter, r *http.Request, raw
 		return
 	}
 
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", invitation.BookID), "Invite accepted.")
+	draft, _, err := app.ensureDraftSubmission(invitation.BookID, user.ID)
+	if err != nil {
+		http.Error(w, "could not load review workspace", http.StatusInternalServerError)
+		return
+	}
+
+	app.redirectWithFlash(w, r, draft.PublicPath(), "Invite accepted.")
 }
 
-func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Request, reviewPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForReviewer(bookID, user.ID)
+	book, submission, err := app.getDraftSubmissionByPublicID(reviewPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -1037,11 +1054,6 @@ func (app *application) showReviewerWorkspace(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
-	if err != nil {
-		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
-		return
-	}
 	app.renderReviewWorkspace(w, r, book, submission, parseInt64(r.URL.Query().Get("chapter")), nil, nil, http.StatusOK)
 }
 
@@ -1078,21 +1090,15 @@ func (app *application) renderReviewWorkspace(w http.ResponseWriter, r *http.Req
 	app.render(w, status, "review_show", data)
 }
 
-func (app *application) createReviewChapter(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) createReviewChapter(w http.ResponseWriter, r *http.Request, reviewPublicID string) {
 	user := app.currentUser(r)
-	book, err := app.getBookForReviewer(bookID, user.ID)
+	book, submission, err := app.getDraftSubmissionByPublicID(reviewPublicID, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
 		}
 		http.Error(w, "could not load review workspace", http.StatusInternalServerError)
-		return
-	}
-
-	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
-	if err != nil {
-		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
 		return
 	}
 
@@ -1134,7 +1140,7 @@ func (app *application) createReviewChapter(w http.ResponseWriter, r *http.Reque
 		app.renderReviewWorkspace(w, r, book, submission, chapterID, nil, nil, http.StatusOK)
 		return
 	}
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", bookID, chapterID), "Chapter added.")
+	app.redirectWithFlash(w, r, fmt.Sprintf("%s?chapter=%d", submission.PublicPath(), chapterID), "Chapter added.")
 }
 
 func (app *application) saveReviewChapterNote(w http.ResponseWriter, r *http.Request, chapterID int64) {
@@ -1170,7 +1176,7 @@ func (app *application) saveReviewChapterNote(w http.ResponseWriter, r *http.Req
 		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, nil, nil, http.StatusOK)
 		return
 	}
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", book.ID, chapter.ID), "Chapter note saved.")
+	app.redirectWithFlash(w, r, fmt.Sprintf("%s?chapter=%d", submission.PublicPath(), chapter.ID), "Chapter note saved.")
 }
 
 func (app *application) createReviewPage(w http.ResponseWriter, r *http.Request, chapterID int64) {
@@ -1216,12 +1222,13 @@ func (app *application) createReviewPage(w http.ResponseWriter, r *http.Request,
 		app.renderReviewWorkspace(w, r, book, submission, chapter.ID, nil, nil, http.StatusOK)
 		return
 	}
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d?chapter=%d", book.ID, chapter.ID), "Page note saved.")
+	app.redirectWithFlash(w, r, fmt.Sprintf("%s?chapter=%d", submission.PublicPath(), chapter.ID), "Page note saved.")
 }
 
-func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Request, bookID int64) {
+func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Request, reviewPublicID string) {
 	user := app.currentUser(r)
-	if _, err := app.getBookForReviewer(bookID, user.ID); err != nil {
+	_, submission, err := app.getDraftSubmissionByPublicID(reviewPublicID, user.ID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -1229,17 +1236,11 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "could not load review workspace", http.StatusInternalServerError)
 		return
 	}
-
-	submission, _, err := app.ensureDraftSubmission(bookID, user.ID)
-	if err != nil {
-		http.Error(w, "could not load draft submission", http.StatusInternalServerError)
-		return
-	}
 	if ok, err := app.hasDraftReviewContent(submission.ID); err != nil {
 		http.Error(w, "could not inspect draft content", http.StatusInternalServerError)
 		return
 	} else if !ok {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Add at least one note before submitting.")
+		app.redirectWithFlash(w, r, submission.PublicPath(), "Add at least one note before submitting.")
 		return
 	}
 
@@ -1248,7 +1249,7 @@ func (app *application) submitReviewerDraft(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	app.redirectWithFlash(w, r, fmt.Sprintf("/reviews/%d", bookID), "Feedback submitted. You can keep working on this draft.")
+	app.redirectWithFlash(w, r, submission.PublicPath(), "Feedback submitted. You can keep working on this draft.")
 }
 
 func (app *application) respondToChapter(w http.ResponseWriter, r *http.Request, chapterID int64) {
@@ -1268,20 +1269,26 @@ func (app *application) respondToChapter(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	bookPath, err := app.bookPathByID(bookID)
+	if err != nil {
+		http.Error(w, "could not load book route", http.StatusInternalServerError)
+		return
+	}
+
 	reaction, comment, ok := resolveAuthorResponse(r, chapter.AuthorReaction, chapter.AuthorComment)
 	if !ok {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response.")
+		app.redirectWithFlash(w, r, bookPath, "Unsupported response.")
 		return
 	}
 	if len(comment) > 2000 {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
+		app.redirectWithFlash(w, r, bookPath, "Comment is too long.")
 		return
 	}
 	if err := app.updateReviewChapterResponse(chapterID, reaction, comment); err != nil {
 		http.Error(w, "could not save response", http.StatusInternalServerError)
 		return
 	}
-	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
+	app.redirectWithFlash(w, r, bookPath, "Response saved.")
 }
 
 func (app *application) respondToPage(w http.ResponseWriter, r *http.Request, pageID int64) {
@@ -1301,20 +1308,26 @@ func (app *application) respondToPage(w http.ResponseWriter, r *http.Request, pa
 		return
 	}
 
+	bookPath, err := app.bookPathByID(bookID)
+	if err != nil {
+		http.Error(w, "could not load book route", http.StatusInternalServerError)
+		return
+	}
+
 	reaction, comment, ok := resolveAuthorResponse(r, page.AuthorReaction, page.AuthorComment)
 	if !ok {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Unsupported response.")
+		app.redirectWithFlash(w, r, bookPath, "Unsupported response.")
 		return
 	}
 	if len(comment) > 2000 {
-		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Comment is too long.")
+		app.redirectWithFlash(w, r, bookPath, "Comment is too long.")
 		return
 	}
 	if err := app.updateReviewPageResponse(pageID, reaction, comment); err != nil {
 		http.Error(w, "could not save response", http.StatusInternalServerError)
 		return
 	}
-	app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", bookID), "Response saved.")
+	app.redirectWithFlash(w, r, bookPath, "Response saved.")
 }
 
 func resolveAuthorResponse(r *http.Request, currentReaction sql.NullString, currentComment sql.NullString) (string, string, bool) {
@@ -1639,6 +1652,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
 		`CREATE TABLE IF NOT EXISTS books (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT,
 			owner_user_id INTEGER NOT NULL,
 			title TEXT NOT NULL,
 			author_name TEXT NOT NULL,
@@ -1686,6 +1700,7 @@ func runMigrations(db *sql.DB) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS review_drafts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT,
 			book_id INTEGER NOT NULL,
 			reviewer_user_id INTEGER NOT NULL,
 			created_at DATETIME NOT NULL,
@@ -1721,6 +1736,7 @@ func runMigrations(db *sql.DB) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS review_submissions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT,
 			book_id INTEGER NOT NULL,
 			reviewer_user_id INTEGER NOT NULL,
 			submitted_at DATETIME NOT NULL,
@@ -1758,6 +1774,42 @@ func runMigrations(db *sql.DB) error {
 	}
 
 	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	columnMigrations := []struct {
+		table   string
+		column  string
+		alterSQL string
+	}{
+		{"books", "public_id", `ALTER TABLE books ADD COLUMN public_id TEXT`},
+		{"review_drafts", "public_id", `ALTER TABLE review_drafts ADD COLUMN public_id TEXT`},
+		{"review_submissions", "public_id", `ALTER TABLE review_submissions ADD COLUMN public_id TEXT`},
+	}
+	for _, migration := range columnMigrations {
+		if err := addColumnIfMissing(db, migration.table, migration.column, migration.alterSQL); err != nil {
+			return err
+		}
+	}
+
+	if err := backfillPublicIDs(db, "books", "public_id", "bk_"); err != nil {
+		return err
+	}
+	if err := backfillPublicIDs(db, "review_drafts", "public_id", "rv_"); err != nil {
+		return err
+	}
+	if err := backfillPublicIDs(db, "review_submissions", "public_id", "rs_"); err != nil {
+		return err
+	}
+
+	indexes := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_books_public_id ON books(public_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_drafts_public_id ON review_drafts(public_id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_review_submissions_public_id ON review_submissions(public_id);`,
+	}
+	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
@@ -2082,7 +2134,7 @@ func (app *application) listAdminBooks() ([]AdminBookRow, error) {
 
 func (app *application) listBooksByOwner(userID int64) ([]Book, error) {
 	rows, err := app.db.Query(`
-		SELECT id, owner_user_id, title, author_name, isbn, cover_url, description, status, created_at, updated_at
+		SELECT id, public_id, owner_user_id, title, author_name, isbn, cover_url, description, status, created_at, updated_at
 		FROM books
 		WHERE owner_user_id = ?
 		ORDER BY created_at DESC
@@ -2098,6 +2150,7 @@ func (app *application) listBooksByOwner(userID int64) ([]Book, error) {
 		var isbn, coverURL, description sql.NullString
 		if err := rows.Scan(
 			&book.ID,
+			&book.PublicID,
 			&book.OwnerUserID,
 			&book.Title,
 			&book.AuthorName,
@@ -2123,11 +2176,41 @@ func (app *application) getBookForOwner(bookID, ownerUserID int64) (*Book, error
 	var book Book
 	var isbn, coverURL, description sql.NullString
 	err := app.db.QueryRow(`
-		SELECT id, owner_user_id, title, author_name, isbn, cover_url, description, status, created_at, updated_at
+		SELECT id, public_id, owner_user_id, title, author_name, isbn, cover_url, description, status, created_at, updated_at
 		FROM books
 		WHERE id = ? AND owner_user_id = ?
 	`, bookID, ownerUserID).Scan(
 		&book.ID,
+		&book.PublicID,
+		&book.OwnerUserID,
+		&book.Title,
+		&book.AuthorName,
+		&isbn,
+		&coverURL,
+		&description,
+		&book.Status,
+		&book.CreatedAt,
+		&book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	book.ISBN = isbn.String
+	book.CoverURL = coverURL.String
+	book.Description = description.String
+	return &book, nil
+}
+
+func (app *application) getBookForOwnerByPublicID(publicID string, ownerUserID int64) (*Book, error) {
+	var book Book
+	var isbn, coverURL, description sql.NullString
+	err := app.db.QueryRow(`
+		SELECT id, public_id, owner_user_id, title, author_name, isbn, cover_url, description, status, created_at, updated_at
+		FROM books
+		WHERE public_id = ? AND owner_user_id = ?
+	`, publicID, ownerUserID).Scan(
+		&book.ID,
+		&book.PublicID,
 		&book.OwnerUserID,
 		&book.Title,
 		&book.AuthorName,
@@ -2191,12 +2274,25 @@ func (app *application) deleteBookForOwner(bookID, ownerUserID int64) error {
 	return nil
 }
 
+func (app *application) bookPathByID(bookID int64) (string, error) {
+	var book Book
+	err := app.db.QueryRow(`SELECT public_id, title FROM books WHERE id = ?`, bookID).Scan(&book.PublicID, &book.Title)
+	if err != nil {
+		return "", err
+	}
+	return book.PublicPath(), nil
+}
+
 func (app *application) insertBook(ownerUserID int64, title, authorName, isbn, description string) (*Book, error) {
 	now := time.Now().UTC()
+	publicID, err := app.generateUniquePublicID("books", "public_id", "bk_")
+	if err != nil {
+		return nil, err
+	}
 	res, err := app.db.Exec(`
-		INSERT INTO books (owner_user_id, title, author_name, isbn, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
-	`, ownerUserID, title, authorName, nullIfEmpty(isbn), nullIfEmpty(description), now, now)
+		INSERT INTO books (public_id, owner_user_id, title, author_name, isbn, description, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+	`, publicID, ownerUserID, title, authorName, nullIfEmpty(isbn), nullIfEmpty(description), now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -2208,6 +2304,7 @@ func (app *application) insertBook(ownerUserID int64, title, authorName, isbn, d
 
 	return &Book{
 		ID:          id,
+		PublicID:    publicID,
 		OwnerUserID: ownerUserID,
 		Title:       title,
 		AuthorName:  authorName,
@@ -2296,7 +2393,7 @@ func (app *application) getInvitationByToken(rawToken string) (*ReviewInvitation
 	err := app.db.QueryRow(`
 		SELECT
 			ri.id, ri.book_id, ri.email, ri.status, ri.expires_at, ri.accepted_at, ri.accepted_by_user_id, ri.created_at,
-			b.id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+			b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
 		FROM review_invitations ri
 		JOIN books b ON b.id = ri.book_id
 		WHERE ri.token_hash = ?
@@ -2310,6 +2407,7 @@ func (app *application) getInvitationByToken(rawToken string) (*ReviewInvitation
 		&invitation.AcceptedBy,
 		&invitation.CreatedAt,
 		&book.ID,
+		&book.PublicID,
 		&book.OwnerUserID,
 		&book.Title,
 		&book.AuthorName,
@@ -2335,12 +2433,13 @@ func (app *application) getBookForReviewer(bookID, reviewerUserID int64) (*Book,
 	var book Book
 	var isbn, coverURL, description sql.NullString
 	err := app.db.QueryRow(`
-		SELECT b.id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+		SELECT b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
 		FROM books b
 		JOIN book_reviewers br ON br.book_id = b.id
 		WHERE b.id = ? AND br.user_id = ?
 	`, bookID, reviewerUserID).Scan(
 		&book.ID,
+		&book.PublicID,
 		&book.OwnerUserID,
 		&book.Title,
 		&book.AuthorName,
@@ -2404,11 +2503,12 @@ func (app *application) acceptInvitation(invitationID, userID int64) error {
 func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*FeedbackSubmission, []FeedbackEntry, error) {
 	var submission FeedbackSubmission
 	err := app.db.QueryRow(`
-		SELECT id, book_id, reviewer_user_id, created_at, updated_at
+		SELECT id, public_id, book_id, reviewer_user_id, created_at, updated_at
 		FROM review_drafts
 		WHERE book_id = ? AND reviewer_user_id = ?
 	`, bookID, reviewerUserID).Scan(
 		&submission.ID,
+		&submission.PublicID,
 		&submission.BookID,
 		&submission.ReviewerUserID,
 		&submission.CreatedAt,
@@ -2418,10 +2518,14 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 	case err == nil:
 	case errors.Is(err, sql.ErrNoRows):
 		now := time.Now().UTC()
+		publicID, err := app.generateUniquePublicID("review_drafts", "public_id", "rv_")
+		if err != nil {
+			return nil, nil, err
+		}
 		res, err := app.db.Exec(`
-			INSERT INTO review_drafts (book_id, reviewer_user_id, created_at, updated_at)
-			VALUES (?, ?, ?, ?)
-		`, bookID, reviewerUserID, now, now)
+			INSERT INTO review_drafts (public_id, book_id, reviewer_user_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, publicID, bookID, reviewerUserID, now, now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2431,6 +2535,7 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 		}
 		submission = FeedbackSubmission{
 			ID:             submissionID,
+			PublicID:       publicID,
 			BookID:         bookID,
 			ReviewerUserID: reviewerUserID,
 			CreatedAt:      now,
@@ -2441,6 +2546,32 @@ func (app *application) ensureDraftSubmission(bookID, reviewerUserID int64) (*Fe
 	}
 
 	return &submission, nil, nil
+}
+
+func (app *application) getDraftSubmissionByPublicID(publicID string, reviewerUserID int64) (*Book, *FeedbackSubmission, error) {
+	var book Book
+	var submission FeedbackSubmission
+	var isbn, coverURL, description sql.NullString
+
+	err := app.db.QueryRow(`
+		SELECT
+			rd.id, rd.public_id, rd.book_id, rd.reviewer_user_id, rd.created_at, rd.updated_at,
+			b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+		FROM review_drafts rd
+		JOIN books b ON b.id = rd.book_id
+		WHERE rd.public_id = ? AND rd.reviewer_user_id = ?
+	`, publicID, reviewerUserID).Scan(
+		&submission.ID, &submission.PublicID, &submission.BookID, &submission.ReviewerUserID, &submission.CreatedAt, &submission.UpdatedAt,
+		&book.ID, &book.PublicID, &book.OwnerUserID, &book.Title, &book.AuthorName, &isbn, &coverURL, &description, &book.Status, &book.CreatedAt, &book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	book.ISBN = isbn.String
+	book.CoverURL = coverURL.String
+	book.Description = description.String
+	return &book, &submission, nil
 }
 
 func (app *application) listReviewChapters(submissionID int64) ([]ReviewChapter, error) {
@@ -2681,16 +2812,16 @@ func (app *application) getDraftReviewChapterForReviewer(chapterID, reviewerUser
 	err := app.db.QueryRow(`
 		SELECT
 			rc.id, rc.draft_id, rc.label, rc.note_anchor_text, rc.note_body, rc.position, rc.created_at, rc.updated_at,
-			rd.id, rd.book_id, rd.reviewer_user_id, rd.created_at, rd.updated_at,
-			b.id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+			rd.id, rd.public_id, rd.book_id, rd.reviewer_user_id, rd.created_at, rd.updated_at,
+			b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
 		FROM review_draft_chapters rc
 		JOIN review_drafts rd ON rd.id = rc.draft_id
 		JOIN books b ON b.id = rd.book_id
 		WHERE rc.id = ? AND rd.reviewer_user_id = ?
 	`, chapterID, reviewerUserID).Scan(
 		&chapter.ID, &chapter.SubmissionID, &chapter.Label, &chapter.NoteAnchorText, &chapter.NoteBody, &chapter.Position, &chapter.CreatedAt, &chapter.UpdatedAt,
-		&submission.ID, &submission.BookID, &submission.ReviewerUserID, &submission.CreatedAt, &submission.UpdatedAt,
-		&book.ID, &book.OwnerUserID, &book.Title, &book.AuthorName, &isbn, &coverURL, &description, &book.Status, &book.CreatedAt, &book.UpdatedAt,
+		&submission.ID, &submission.PublicID, &submission.BookID, &submission.ReviewerUserID, &submission.CreatedAt, &submission.UpdatedAt,
+		&book.ID, &book.PublicID, &book.OwnerUserID, &book.Title, &book.AuthorName, &isbn, &coverURL, &description, &book.Status, &book.CreatedAt, &book.UpdatedAt,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -2775,11 +2906,12 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 
 	var draft FeedbackSubmission
 	err = tx.QueryRow(`
-		SELECT id, book_id, reviewer_user_id, created_at, updated_at
+		SELECT id, public_id, book_id, reviewer_user_id, created_at, updated_at
 		FROM review_drafts
 		WHERE id = ?
 	`, submissionID).Scan(
 		&draft.ID,
+		&draft.PublicID,
 		&draft.BookID,
 		&draft.ReviewerUserID,
 		&draft.CreatedAt,
@@ -2790,10 +2922,14 @@ func (app *application) submitFeedbackSubmission(submissionID int64) error {
 	}
 
 	now := time.Now().UTC()
+	submissionPublicID, err := app.generateUniquePublicIDTx(tx, "review_submissions", "public_id", "rs_")
+	if err != nil {
+		return err
+	}
 	res, err := tx.Exec(`
-		INSERT INTO review_submissions (book_id, reviewer_user_id, submitted_at, created_at)
-		VALUES (?, ?, ?, ?)
-	`, draft.BookID, draft.ReviewerUserID, now, now)
+		INSERT INTO review_submissions (public_id, book_id, reviewer_user_id, submitted_at, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, submissionPublicID, draft.BookID, draft.ReviewerUserID, now, now)
 	if err != nil {
 		return err
 	}
@@ -3030,6 +3166,42 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+func slugify(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range value {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			lastHyphen = false
+		case !lastHyphen:
+			b.WriteByte('-')
+			lastHyphen = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "book"
+	}
+	return slug
+}
+
+func bookRouteKey(title, publicID string) string {
+	return slugify(title) + "--" + publicID
+}
+
+func parseBookPublicID(segment string) string {
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(segment, "--"); idx >= 0 && idx+2 < len(segment) {
+		return strings.TrimSpace(segment[idx+2:])
+	}
+	return segment
+}
+
 func nullIfEmpty(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -3118,6 +3290,121 @@ func randomToken(size int) (string, error) {
 	}
 
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func randomPublicIDSuffix(length int) (string, error) {
+	const alphabet = "23456789abcdefghjkmnpqrstuvwxyz"
+	buf := make([]byte, length)
+	raw := make([]byte, length)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	for i := range buf {
+		buf[i] = alphabet[int(raw[i])%len(alphabet)]
+	}
+	return string(buf), nil
+}
+
+func addColumnIfMissing(db *sql.DB, table, column, alterSQL string) error {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, column) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(alterSQL)
+	return err
+}
+
+func backfillPublicIDs(db *sql.DB, table, column, prefix string) error {
+	rows, err := db.Query(fmt.Sprintf(`SELECT id FROM %s WHERE %s IS NULL OR trim(%s) = ''`, table, column, column))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		publicID, err := generateUniquePublicIDDB(db, table, column, prefix)
+		if err != nil {
+			return err
+		}
+		if _, err := db.Exec(fmt.Sprintf(`UPDATE %s SET %s = ? WHERE id = ?`, table, column), publicID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func generateUniquePublicIDDB(db *sql.DB, table, column, prefix string) (string, error) {
+	for i := 0; i < 12; i++ {
+		suffix, err := randomPublicIDSuffix(8)
+		if err != nil {
+			return "", err
+		}
+		publicID := prefix + suffix
+		var exists bool
+		query := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE %s = ?)`, table, column)
+		if err := db.QueryRow(query, publicID).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return publicID, nil
+		}
+	}
+	return "", fmt.Errorf("could not generate unique public id for %s", table)
+}
+
+func (app *application) generateUniquePublicID(table, column, prefix string) (string, error) {
+	return generateUniquePublicIDDB(app.db, table, column, prefix)
+}
+
+func (app *application) generateUniquePublicIDTx(tx *sql.Tx, table, column, prefix string) (string, error) {
+	for i := 0; i < 12; i++ {
+		suffix, err := randomPublicIDSuffix(8)
+		if err != nil {
+			return "", err
+		}
+		publicID := prefix + suffix
+		var exists bool
+		query := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE %s = ?)`, table, column)
+		if err := tx.QueryRow(query, publicID).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return publicID, nil
+		}
+	}
+	return "", fmt.Errorf("could not generate unique public id for %s", table)
 }
 
 func hashToken(token string) string {

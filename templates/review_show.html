@@ -9,7 +9,7 @@
         <span class="brand-name">readperfect</span>
       </a>
       <nav class="site-nav" aria-label="Primary">
-        <a href="/reviews/{{ .ReviewBook.ID }}">Review workspace</a>
+        <a href="{{ .ReviewerSubmission.PublicPath }}">Review workspace</a>
       </nav>
       <div class="header-actions">
         <span class="app-user">{{ .CurrentUser.Email }}</span>
@@ -150,9 +150,9 @@
     </div>
 
     <form class="book-form chapter-create-form"
-          action="/reviews/{{ .ReviewBook.ID }}/chapters"
+          action="{{ .ReviewerSubmission.PublicPath }}/chapters"
           method="post"
-          hx-post="/reviews/{{ .ReviewBook.ID }}/chapters"
+          hx-post="{{ .ReviewerSubmission.PublicPath }}/chapters"
           hx-target="#reviewer-workspace"
           hx-select="#reviewer-workspace"
           hx-swap="outerHTML"
@@ -173,7 +173,7 @@
           <button
             class="chapter-rail-link{{ if $.ActiveReviewChapter }}{{ if eq $.ActiveReviewChapter.ID .ID }} is-active{{ end }}{{ end }}"
             type="button"
-            hx-get="/reviews/{{ $.ReviewBook.ID }}?chapter={{ .ID }}"
+            hx-get="{{ $.ReviewerSubmission.PublicPath }}?chapter={{ .ID }}"
             hx-target="#reviewer-workspace"
             hx-select="#reviewer-workspace"
             hx-swap="outerHTML"
@@ -221,7 +221,7 @@
             </details>
           </div>
         </div>
-        <form action="/reviews/{{ .ReviewBook.ID }}/submit" method="post">
+        <form action="{{ .ReviewerSubmission.PublicPath }}/submit" method="post">
           <button class="primary-button" type="submit">Submit feedback</button>
         </form>
       </div>

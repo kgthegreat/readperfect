@@ -36,7 +36,7 @@
             {{ if .Book.ISBN }}<span class="muted-meta">ISBN {{ .Book.ISBN }}</span>{{ end }}
           </div>
           {{ if .CanDeleteBook }}
-            <form class="inline-danger-form" action="/books/{{ .Book.ID }}/delete" method="post">
+            <form class="inline-danger-form" action="{{ .Book.PublicPath }}/delete" method="post">
               <button class="quiet-danger-button" type="submit">Delete book</button>
             </form>
           {{ else }}
@@ -58,7 +58,7 @@
             </div>
           </div>
 
-          <form class="book-form" action="/books/{{ .Book.ID }}/questions" method="post" novalidate>
+          <form class="book-form" action="{{ .Book.PublicPath }}/questions" method="post" novalidate>
             <div class="field-stack">
               <label for="question">Question for reviewers</label>
               <textarea id="question" name="question" rows="4" placeholder="Did the ending feel earned?"></textarea>
@@ -91,7 +91,7 @@
             </div>
           </div>
 
-          <form class="book-form" action="/books/{{ .Book.ID }}/invitations" method="post" novalidate>
+          <form class="book-form" action="{{ .Book.PublicPath }}/invitations" method="post" novalidate>
             <div class="field-stack">
               <label for="invite_email">Reviewer email</label>
               <input id="invite_email" name="email" type="email" placeholder="reader@example.com">
