@@ -69,6 +69,7 @@ type templateData struct {
 	Stats               dashboardStats
 	Books               []Book
 	Book                *Book
+	CanDeleteBook       bool
 	Questions           []AuthorQuestion
 	Invitations         []ReviewInvitation
 	GeneratedInviteURL  string
@@ -651,6 +652,8 @@ func (app *application) booksRouter(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
 		app.showBook(w, r, bookID)
+	case len(parts) == 2 && parts[1] == "delete" && r.Method == http.MethodPost:
+		app.deleteBook(w, r, bookID)
 	case len(parts) == 2 && parts[1] == "questions" && r.Method == http.MethodPost:
 		app.createQuestion(w, r, bookID)
 	case len(parts) == 2 && parts[1] == "invitations" && r.Method == http.MethodPost:
@@ -792,13 +795,49 @@ func (app *application) showBook(w http.ResponseWriter, r *http.Request, bookID 
 		http.Error(w, "could not load submitted feedback", http.StatusInternalServerError)
 		return
 	}
+	canDeleteBook, err := app.canDeleteBook(bookID, user.ID)
+	if err != nil {
+		http.Error(w, "could not determine delete status", http.StatusInternalServerError)
+		return
+	}
 
 	data := app.newTemplateData(r)
 	data.Book = book
+	data.CanDeleteBook = canDeleteBook
 	data.Questions = questions
 	data.Invitations = invitations
 	data.SubmittedFeedback = submittedFeedback
 	app.render(w, http.StatusOK, "book_show", data)
+}
+
+func (app *application) deleteBook(w http.ResponseWriter, r *http.Request, bookID int64) {
+	user := app.currentUser(r)
+	book, err := app.getBookForOwner(bookID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load book", http.StatusInternalServerError)
+		return
+	}
+
+	canDeleteBook, err := app.canDeleteBook(bookID, user.ID)
+	if err != nil {
+		http.Error(w, "could not determine delete status", http.StatusInternalServerError)
+		return
+	}
+	if !canDeleteBook {
+		app.redirectWithFlash(w, r, fmt.Sprintf("/books/%d", book.ID), "This book cannot be deleted after reviewer work has started.")
+		return
+	}
+
+	if err := app.deleteBookForOwner(bookID, user.ID); err != nil {
+		http.Error(w, "could not delete book", http.StatusInternalServerError)
+		return
+	}
+
+	app.redirectWithFlash(w, r, "/app", "Book deleted.")
 }
 
 func (app *application) createQuestion(w http.ResponseWriter, r *http.Request, bookID int64) {
@@ -891,9 +930,15 @@ func (app *application) renderBookWorkspace(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "could not load submitted feedback", http.StatusInternalServerError)
 		return
 	}
+	canDeleteBook, err := app.canDeleteBook(book.ID, book.OwnerUserID)
+	if err != nil {
+		http.Error(w, "could not determine delete status", http.StatusInternalServerError)
+		return
+	}
 
 	data := app.newTemplateData(r)
 	data.Book = book
+	data.CanDeleteBook = canDeleteBook
 	data.Questions = questions
 	data.Invitations = invitations
 	data.SubmittedFeedback = submittedFeedback
@@ -1277,7 +1322,7 @@ func resolveAuthorResponse(r *http.Request, currentReaction sql.NullString, curr
 	reaction := strings.TrimSpace(r.FormValue("reaction"))
 	comment := strings.TrimSpace(r.FormValue("comment"))
 
-	if reaction != "" && reaction != "insightful" {
+	if reaction != "" && reaction != "noted" {
 		return "", "", false
 	}
 
@@ -2100,6 +2145,50 @@ func (app *application) getBookForOwner(bookID, ownerUserID int64) (*Book, error
 	book.CoverURL = coverURL.String
 	book.Description = description.String
 	return &book, nil
+}
+
+func (app *application) canDeleteBook(bookID, ownerUserID int64) (bool, error) {
+	var ownerExists bool
+	if err := app.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM books
+			WHERE id = ? AND owner_user_id = ?
+		)
+	`, bookID, ownerUserID).Scan(&ownerExists); err != nil {
+		return false, err
+	}
+	if !ownerExists {
+		return false, sql.ErrNoRows
+	}
+
+	var hasReviews bool
+	if err := app.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM review_drafts WHERE book_id = ?
+			UNION ALL
+			SELECT 1 FROM review_submissions WHERE book_id = ?
+		)
+	`, bookID, bookID).Scan(&hasReviews); err != nil {
+		return false, err
+	}
+
+	return !hasReviews, nil
+}
+
+func (app *application) deleteBookForOwner(bookID, ownerUserID int64) error {
+	result, err := app.db.Exec(`DELETE FROM books WHERE id = ? AND owner_user_id = ?`, bookID, ownerUserID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (app *application) insertBook(ownerUserID int64, title, authorName, isbn, description string) (*Book, error) {

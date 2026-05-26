@@ -35,6 +35,13 @@
             <span class="status-pill">{{ .Book.Status }}</span>
             {{ if .Book.ISBN }}<span class="muted-meta">ISBN {{ .Book.ISBN }}</span>{{ end }}
           </div>
+          {{ if .CanDeleteBook }}
+            <form class="inline-danger-form" action="/books/{{ .Book.ID }}/delete" method="post">
+              <button class="quiet-danger-button" type="submit">Delete book</button>
+            </form>
+          {{ else }}
+            <p class="muted-meta">This book can no longer be deleted because reviewer work has started.</p>
+          {{ end }}
         </div>
       </section>
 
@@ -158,7 +165,7 @@
                             <div class="response-actions">
                               <form action="/review-chapters/{{ .ID }}/respond" method="post">
                                 <input type="hidden" name="action" value="toggle_reaction">
-                                <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
+                                <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="noted" type="submit">✓ noted</button>
                               </form>
                               <details class="respond-disclosure">
                                 <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>
@@ -200,7 +207,7 @@
                                 <div class="response-actions">
                                   <form action="/review-pages/{{ .ID }}/respond" method="post">
                                     <input type="hidden" name="action" value="toggle_reaction">
-                                    <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="insightful" type="submit">Insightful</button>
+                                    <button class="reaction-chip{{ if .AuthorReaction.Valid }} is-active{{ end }}" name="reaction" value="noted" type="submit">✓ noted</button>
                                   </form>
                                   <details class="respond-disclosure">
                                     <summary class="respond-trigger">{{ if .AuthorComment.Valid }}Edit comment{{ else }}Respond{{ end }}</summary>

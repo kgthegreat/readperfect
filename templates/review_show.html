@@ -72,7 +72,7 @@
                           <p>{{ .NoteBody.String }}</p>
                           {{ if .AuthorReaction.Valid }}
                             <div class="response-block">
-                              <span class="reaction-pill">Insightful</span>
+                              <span class="reaction-pill">✓ noted</span>
                               {{ if .AuthorComment.Valid }}
                                 <div class="author-response-note">
                                   <span class="author-response-label">Author reply</span>
@@ -104,7 +104,7 @@
                               <p>{{ .CommentBody }}</p>
                               {{ if .AuthorReaction.Valid }}
                                 <div class="response-block">
-                                  <span class="reaction-pill">Insightful</span>
+                                  <span class="reaction-pill">✓ noted</span>
                                   {{ if .AuthorComment.Valid }}
                                     <div class="author-response-note">
                                       <span class="author-response-label">Author reply</span>
