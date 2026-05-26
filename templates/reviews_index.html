@@ -1,0 +1,92 @@
+{{ define "title" }}Reviews | readperfect{{ end }}
+
+{{ define "content" }}
+<div class="app-shell">
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="/app" aria-label="readperfect workspace">
+        <span class="brand-mark">rp</span>
+        <span class="brand-name">readperfect</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/app">Dashboard</a>
+        <a href="/reviews">Reviews</a>
+        <a href="/books/new">Add book</a>
+      </nav>
+      <div class="header-actions">
+        <span class="app-user">{{ .CurrentUser.Name }}</span>
+        <form action="/logout" method="post">
+          <button class="quiet-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="container app-layout">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow">Reviewer dashboard</p>
+          <h1>Books you are reviewing.</h1>
+          <p class="section-text">Open the review workspace for any assigned book from here. Draft creation happens only when you explicitly open a workspace.</p>
+        </div>
+      </section>
+
+      {{ if .Flash }}
+        <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      {{ if .ReviewerAssignments }}
+        <section class="books-section">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Assignments</p>
+              <h2>Current review work</h2>
+            </div>
+          </div>
+          <div class="book-list">
+            {{ range .ReviewerAssignments }}
+              <article class="book-card">
+                <div class="book-card-head">
+                  <div class="book-card-cover">
+                    <span>{{ .Book.Title }}</span>
+                  </div>
+                  <div>
+                    <h3>{{ .Book.Title }}</h3>
+                    <p>by {{ .Book.AuthorName }}</p>
+                  </div>
+                </div>
+                <div class="book-card-meta">
+                  <span class="status-pill">reviewing</span>
+                  {{ if .SubmittedAt.Valid }}
+                    <span class="muted-meta">last shared {{ .SubmittedAt.Time.Format "02 Jan 2006" }}</span>
+                  {{ else }}
+                    <span class="muted-meta">nothing submitted yet</span>
+                  {{ end }}
+                </div>
+                {{ if .Book.Description }}
+                  <p class="book-card-description">{{ .Book.Description }}</p>
+                {{ else }}
+                  <p class="book-card-description is-muted">No description added yet.</p>
+                {{ end }}
+                <div class="form-actions">
+                  <form action="/reviews/open" method="post">
+                    <input type="hidden" name="book_public_id" value="{{ .Book.PublicID }}">
+                    <button class="primary-button" type="submit">Open review workspace</button>
+                  </form>
+                </div>
+              </article>
+            {{ end }}
+          </div>
+        </section>
+      {{ else }}
+        <section class="empty-state">
+          <p class="section-kicker">Reviews</p>
+          <h2>No review assignments yet.</h2>
+          <p class="section-text">When an author invites you and you accept, the book will appear here.</p>
+        </section>
+      {{ end }}
+    </div>
+  </main>
+</div>
+{{ end }}

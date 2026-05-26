@@ -9,6 +9,7 @@
         <span class="brand-name">readperfect</span>
       </a>
       <nav class="site-nav" aria-label="Primary">
+        <a href="/reviews">Reviews</a>
         <a href="{{ .ReviewerSubmission.PublicPath }}">Review workspace</a>
       </nav>
       <div class="header-actions">
@@ -35,6 +36,25 @@
 
       {{ if .Flash }}
         <div class="flash-banner">{{ .Flash }}</div>
+      {{ end }}
+
+      {{ if .Questions }}
+        <section class="form-panel reviewer-guidance-panel">
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="eyebrow">Author questions</p>
+              <h2>What the author wants you to notice.</h2>
+            </div>
+          </div>
+          <div class="question-list">
+            {{ range .Questions }}
+              <article class="list-item-card">
+                <span class="note-type">Question {{ .Position }}</span>
+                <p>{{ .Question }}</p>
+              </article>
+            {{ end }}
+          </div>
+        </section>
       {{ end }}
 
       {{ template "review_workspace" . }}

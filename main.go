@@ -69,6 +69,7 @@ type templateData struct {
 	Errors              map[string]string
 	Stats               dashboardStats
 	Books               []Book
+	ReviewerAssignments []ReviewerAssignment
 	Book                *Book
 	CanDeleteBook       bool
 	Questions           []AuthorQuestion
@@ -206,6 +207,11 @@ type SubmittedFeedbackGroup struct {
 	Chapters       []ReviewChapter
 }
 
+type ReviewerAssignment struct {
+	Book        Book
+	SubmittedAt sql.NullTime
+}
+
 type AdminUserRow struct {
 	ID            int64
 	Email         string
@@ -315,6 +321,8 @@ func (app *application) routes() http.Handler {
 	mux.Handle("/review-chapters/", app.requireAuth(http.HandlerFunc(app.reviewChaptersRouter)))
 	mux.Handle("/review-pages/", app.requireAuth(http.HandlerFunc(app.reviewPagesRouter)))
 	mux.Handle("/app", app.requireAuth(http.HandlerFunc(app.dashboard)))
+	mux.Handle("/reviews", app.requireAuth(http.HandlerFunc(app.reviewsIndex)))
+	mux.Handle("/reviews/open", app.requireAuth(http.HandlerFunc(app.openReviewWorkspace)))
 	mux.Handle("/admin", app.requireAdmin(http.HandlerFunc(app.adminDashboard)))
 	mux.Handle("/admin/users", app.requireAdmin(http.HandlerFunc(app.adminUsers)))
 	mux.Handle("/admin/books", app.requireAdmin(http.HandlerFunc(app.adminBooks)))
@@ -534,6 +542,65 @@ func (app *application) dashboard(w http.ResponseWriter, r *http.Request) {
 	app.render(w, http.StatusOK, "dashboard", data)
 }
 
+func (app *application) reviewsIndex(w http.ResponseWriter, r *http.Request) {
+	user := app.currentUser(r)
+	if user == nil {
+		log.Printf("reviewsIndex: no current user path=%s", r.URL.Path)
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+	log.Printf("reviewsIndex: loading reviewer assignments user_id=%d email=%s", user.ID, user.Email)
+	assignments, err := app.listReviewerAssignments(user.ID)
+	if err != nil {
+		log.Printf("reviewsIndex: listReviewerAssignments failed user_id=%d err=%v", user.ID, err)
+		http.Error(w, "could not load reviewer assignments", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("reviewsIndex: loaded reviewer assignments user_id=%d count=%d", user.ID, len(assignments))
+
+	data := app.newTemplateData(r)
+	data.ReviewerAssignments = assignments
+	app.render(w, http.StatusOK, "reviews_index", data)
+}
+
+func (app *application) openReviewWorkspace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := app.currentUser(r)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	bookPublicID := parseBookPublicID(r.FormValue("book_public_id"))
+	if bookPublicID == "" {
+		http.Error(w, "book not found", http.StatusNotFound)
+		return
+	}
+
+	book, err := app.getBookForReviewerByPublicID(bookPublicID, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "could not load review workspace", http.StatusInternalServerError)
+		return
+	}
+
+	submission, _, err := app.ensureDraftSubmission(book.ID, user.ID)
+	if err != nil {
+		http.Error(w, "could not load review workspace", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, submission.PublicPath(), http.StatusSeeOther)
+}
+
 func (app *application) adminDashboard(w http.ResponseWriter, r *http.Request) {
 	stats, err := app.adminStats()
 	if err != nil {
@@ -701,7 +768,7 @@ func (app *application) invitesRouter(w http.ResponseWriter, r *http.Request) {
 func (app *application) reviewsRouter(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/reviews/")
 	if path == "" {
-		http.NotFound(w, r)
+		http.Redirect(w, r, "/reviews", http.StatusSeeOther)
 		return
 	}
 
@@ -1063,6 +1130,11 @@ func (app *application) renderReviewWorkspace(w http.ResponseWriter, r *http.Req
 		http.Error(w, "could not load review chapters", http.StatusInternalServerError)
 		return
 	}
+	questions, err := app.listQuestionsForBook(book.ID)
+	if err != nil {
+		http.Error(w, "could not load author questions", http.StatusInternalServerError)
+		return
+	}
 	submittedFeedback, err := app.listSubmittedFeedbackForReviewer(book.ID, submission.ReviewerUserID)
 	if err != nil {
 		http.Error(w, "could not load submitted feedback", http.StatusInternalServerError)
@@ -1072,6 +1144,7 @@ func (app *application) renderReviewWorkspace(w http.ResponseWriter, r *http.Req
 	data := app.newTemplateData(r)
 	data.ReviewBook = book
 	data.ReviewerSubmission = submission
+	data.Questions = questions
 	data.ReviewChapters = chapters
 	data.ActiveReviewChapter = selectActiveReviewChapter(chapters, activeChapterID)
 	data.SubmittedFeedback = submittedFeedback
@@ -1573,7 +1646,7 @@ func (app *application) isHTMX(r *http.Request) bool {
 }
 
 func newTemplateCache() (map[string]*template.Template, error) {
-	pages := []string{"home", "login", "signup", "dashboard", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact", "admin", "admin_users", "admin_books"}
+	pages := []string{"home", "login", "signup", "dashboard", "reviews_index", "book_new", "book_show", "invite_show", "review_show", "privacy", "terms", "contact", "admin", "admin_users", "admin_books"}
 	cache := make(map[string]*template.Template, len(pages))
 
 	for _, page := range pages {
@@ -2046,7 +2119,6 @@ func (app *application) dashboardStats(userID int64) (dashboardStats, error) {
 	`, userID).Scan(&stats.SubmittedFeedback); err != nil {
 		return stats, err
 	}
-
 	return stats, nil
 }
 
@@ -2170,6 +2242,64 @@ func (app *application) listBooksByOwner(userID int64) ([]Book, error) {
 	}
 
 	return books, rows.Err()
+}
+
+func (app *application) listReviewerAssignments(userID int64) ([]ReviewerAssignment, error) {
+	log.Printf("listReviewerAssignments: start user_id=%d", userID)
+	rows, err := app.db.Query(`
+		SELECT
+			b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at,
+			(
+				SELECT MAX(rs.submitted_at)
+				FROM review_submissions rs
+				WHERE rs.book_id = b.id AND rs.reviewer_user_id = br.user_id
+			) AS last_submitted_at
+		FROM book_reviewers br
+		JOIN books b ON b.id = br.book_id
+		WHERE br.user_id = ?
+		ORDER BY b.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("listReviewerAssignments: query failed user_id=%d err=%v", userID, err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assignments []ReviewerAssignment
+	for rows.Next() {
+		var assignment ReviewerAssignment
+		var isbn, coverURL, description sql.NullString
+		var submittedAtRaw sql.NullString
+		if err := rows.Scan(
+			&assignment.Book.ID,
+			&assignment.Book.PublicID,
+			&assignment.Book.OwnerUserID,
+			&assignment.Book.Title,
+			&assignment.Book.AuthorName,
+			&isbn,
+			&coverURL,
+			&description,
+			&assignment.Book.Status,
+			&assignment.Book.CreatedAt,
+			&assignment.Book.UpdatedAt,
+			&submittedAtRaw,
+		); err != nil {
+			log.Printf("listReviewerAssignments: scan failed user_id=%d err=%v", userID, err)
+			return nil, err
+		}
+		assignment.Book.ISBN = isbn.String
+		assignment.Book.CoverURL = coverURL.String
+		assignment.Book.Description = description.String
+		assignment.SubmittedAt = parseNullableTime(submittedAtRaw)
+		assignments = append(assignments, assignment)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("listReviewerAssignments: rows iteration failed user_id=%d err=%v", userID, err)
+		return nil, err
+	}
+
+	log.Printf("listReviewerAssignments: success user_id=%d count=%d", userID, len(assignments))
+	return assignments, nil
 }
 
 func (app *application) getBookForOwner(bookID, ownerUserID int64) (*Book, error) {
@@ -2438,6 +2568,36 @@ func (app *application) getBookForReviewer(bookID, reviewerUserID int64) (*Book,
 		JOIN book_reviewers br ON br.book_id = b.id
 		WHERE b.id = ? AND br.user_id = ?
 	`, bookID, reviewerUserID).Scan(
+		&book.ID,
+		&book.PublicID,
+		&book.OwnerUserID,
+		&book.Title,
+		&book.AuthorName,
+		&isbn,
+		&coverURL,
+		&description,
+		&book.Status,
+		&book.CreatedAt,
+		&book.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	book.ISBN = isbn.String
+	book.CoverURL = coverURL.String
+	book.Description = description.String
+	return &book, nil
+}
+
+func (app *application) getBookForReviewerByPublicID(publicID string, reviewerUserID int64) (*Book, error) {
+	var book Book
+	var isbn, coverURL, description sql.NullString
+	err := app.db.QueryRow(`
+		SELECT b.id, b.public_id, b.owner_user_id, b.title, b.author_name, b.isbn, b.cover_url, b.description, b.status, b.created_at, b.updated_at
+		FROM books b
+		JOIN book_reviewers br ON br.book_id = b.id
+		WHERE b.public_id = ? AND br.user_id = ?
+	`, publicID, reviewerUserID).Scan(
 		&book.ID,
 		&book.PublicID,
 		&book.OwnerUserID,
@@ -3258,6 +3418,28 @@ func currentNullString(value sql.NullString) string {
 		return value.String
 	}
 	return ""
+}
+
+func parseNullableTime(value sql.NullString) sql.NullTime {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return sql.NullTime{}
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999+00:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, value.String); err == nil {
+			return sql.NullTime{Time: parsed, Valid: true}
+		}
+	}
+
+	log.Printf("parseNullableTime: unsupported value=%q", value.String)
+	return sql.NullTime{}
 }
 
 func (app *application) absoluteURL(r *http.Request, path string) string {

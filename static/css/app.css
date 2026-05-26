@@ -1226,6 +1226,7 @@ form {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 18px;
 }
 
 .chapter-rail-link {
@@ -1375,27 +1376,40 @@ form {
   white-space: nowrap;
 }
 
+.response-block {
+  display: grid;
+  gap: 8px;
+}
+
 .author-comment {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   color: var(--text);
+  line-height: 1.55;
 }
 
 .author-response-note {
-  margin-top: 10px;
-  padding: 10px 12px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
   border-radius: 8px;
-  background: rgba(252, 250, 246, 0.74);
-  border: 1px solid rgba(221, 212, 199, 0.7);
+  background: rgba(127, 152, 142, 0.08);
+  border: 1px solid rgba(127, 152, 142, 0.22);
+  border-left: 3px solid rgba(127, 152, 142, 0.48);
 }
 
 .author-response-label {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
-  color: var(--text-muted);
-  font-size: 0.75rem;
+  color: var(--accent-strong);
+  font-size: 0.76rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.response-block .reaction-pill {
+  justify-self: start;
 }
 
 @media (max-width: 1080px) {
