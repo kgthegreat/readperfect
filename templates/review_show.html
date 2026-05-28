@@ -79,14 +79,17 @@
                 </div>
                 <div class="question-list">
                   {{ range .Chapters }}
-                    <article class="list-item-card submitted-note-card chapter-group-card">
-                      <div class="chapter-group-heading">
-                        <div class="inline-meta-row">
-                          <span class="note-type">Chapter</span>
-                          {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                    <details class="list-item-card submitted-note-card chapter-group-card chapter-accordion">
+                      <summary class="chapter-accordion-summary">
+                        <div class="chapter-group-heading">
+                          <div class="inline-meta-row">
+                            <span class="note-type">Chapter</span>
+                            {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                          </div>
+                          <h3>{{ .Label }}</h3>
                         </div>
-                        <h3>{{ .Label }}</h3>
-                      </div>
+                        <span class="muted-meta">{{ len .Pages }} page notes</span>
+                      </summary>
                       {{ if .NoteBody.Valid }}
                         <div class="chapter-note-body">
                           {{ if .NoteAnchorText.Valid }}

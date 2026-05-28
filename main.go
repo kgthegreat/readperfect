@@ -1169,6 +1169,9 @@ func (app *application) renderReviewWorkspace(w http.ResponseWriter, r *http.Req
 		data.Form["page_number"] = strconv.Itoa(nextSuggestedPageNumber(data.ActiveReviewChapter.Pages))
 	}
 	if app.isHTMX(r) {
+		if status == http.StatusUnprocessableEntity {
+			status = http.StatusOK
+		}
 		app.renderNamed(w, status, "review_show", "review_workspace", data)
 		return
 	}

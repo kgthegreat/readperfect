@@ -26,6 +26,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+    <script>
+      document.addEventListener("htmx:beforeSwap", function (event) {
+        if (event.detail.xhr.status === 422) {
+          event.detail.shouldSwap = true;
+          event.detail.isError = false;
+        }
+      });
+    </script>
   </head>
   <body>
     {{ template "content" . }}
