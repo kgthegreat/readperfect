@@ -220,12 +220,12 @@
   <section class="form-panel chapter-focus-panel">
     {{ if .ActiveReviewChapter }}
       <div class="chapter-focus-header">
-        <div>
+        <div class="chapter-focus-intro">
           <p class="eyebrow">Current chapter</p>
-          <div class="chapter-title-row">
-            <h2>{{ .ActiveReviewChapter.Label }}</h2>
+          <h2 class="chapter-title">{{ .ActiveReviewChapter.Label }}</h2>
+          <div class="chapter-action-row">
             <details class="inline-disclosure chapter-label-disclosure" {{ if eq .EditingChapterID .ActiveReviewChapter.ID }}open{{ end }}>
-              <summary>Edit chapter title</summary>
+              <summary>Edit title</summary>
               <form class="book-form compact-note-form"
                     action="/review-chapters/{{ .ActiveReviewChapter.ID }}/label"
                     method="post"
@@ -241,7 +241,7 @@
               </form>
             </details>
             <details class="inline-disclosure chapter-note-disclosure" {{ if index .Errors "chapter_note" }}open{{ end }}>
-              <summary>{{ if .ActiveReviewChapter.NoteBody.Valid }}Edit chapter note{{ else }}Add chapter note{{ end }}</summary>
+              <summary>{{ if .ActiveReviewChapter.NoteBody.Valid }}Edit note{{ else }}Add note{{ end }}</summary>
               <form class="book-form compact-note-form"
                     action="/review-chapters/{{ .ActiveReviewChapter.ID }}/note"
                     method="post"
@@ -267,12 +267,6 @@
           </div>
         </div>
         <div class="submit-actions">
-          <details class="tooltip-wrap">
-            <summary class="tooltip-trigger" aria-describedby="submit-feedback-help">i</summary>
-            <div class="tooltip-bubble" id="submit-feedback-help" role="tooltip">
-              Submit shares your latest draft with the author. You can keep editing afterward, and the author will only see changes after your next submit.
-            </div>
-          </details>
           <form action="{{ .ReviewerSubmission.PublicPath }}/submit" method="post">
             <button class="primary-button" type="submit">Submit feedback</button>
           </form>

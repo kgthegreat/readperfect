@@ -1310,17 +1310,20 @@ form {
   gap: 18px;
 }
 
-.submit-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+.chapter-focus-intro {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
-.chapter-title-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
+.chapter-title {
+  margin: 0;
+}
+
+.submit-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
 }
 
 .inline-meta-row {
@@ -1360,76 +1363,11 @@ form {
   display: none;
 }
 
-.tooltip-wrap {
-  position: relative;
-  display: inline-block;
-}
-
-.tooltip-wrap summary {
-  list-style: none;
-}
-
-.tooltip-wrap summary::-webkit-details-marker {
-  display: none;
-}
-
-.tooltip-trigger {
-  display: inline-flex;
+.chapter-action-row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(221, 212, 199, 0.9);
-  border-radius: 999px;
-  background: rgba(252, 250, 246, 0.9);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1;
-  cursor: help;
-}
-
-.tooltip-wrap[open] .tooltip-trigger,
-.tooltip-trigger:hover,
-.tooltip-trigger:focus-visible {
-  border-color: rgba(127, 152, 142, 0.4);
-  color: var(--text);
-  outline: none;
-}
-
-.tooltip-bubble {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  width: min(320px, 60vw);
-  padding: 12px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(49, 44, 38, 0.12);
-  background: rgba(49, 44, 38, 0.96);
-  color: rgba(252, 250, 246, 0.96);
-  font-size: 0.88rem;
-  line-height: 1.45;
-  box-shadow: 0 14px 24px rgba(49, 44, 38, 0.16);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 10;
-}
-
-.tooltip-wrap[open] .tooltip-bubble {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .tooltip-wrap:hover .tooltip-bubble,
-  .tooltip-trigger:focus-visible + .tooltip-bubble {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-  }
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .chapter-note-disclosure[open] {
@@ -1452,6 +1390,26 @@ form {
   border-radius: 8px;
   border: 1px solid rgba(221, 212, 199, 0.84);
   background: rgba(252, 250, 246, 0.96);
+}
+
+@media (max-width: 720px) {
+  .chapter-focus-header {
+    display: grid;
+    gap: 18px;
+  }
+
+  .submit-actions {
+    justify-items: stretch;
+  }
+
+  .submit-actions form,
+  .submit-actions .primary-button {
+    width: 100%;
+  }
+
+  .chapter-action-row {
+    gap: 14px;
+  }
 }
 
 .chapter-summary-card {
