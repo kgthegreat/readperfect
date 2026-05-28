@@ -153,7 +153,7 @@
                           {{ end }}
                         </div>
                       {{ end }}
-                    </article>
+                    </details>
                   {{ end }}
                 </div>
               </article>
@@ -266,9 +266,17 @@
             </details>
           </div>
         </div>
-        <form action="{{ .ReviewerSubmission.PublicPath }}/submit" method="post">
-          <button class="primary-button" type="submit">Submit feedback</button>
-        </form>
+        <div class="submit-actions">
+          <div class="tooltip-wrap">
+            <button class="tooltip-trigger" type="button" aria-describedby="submit-feedback-help">i</button>
+            <div class="tooltip-bubble" id="submit-feedback-help" role="tooltip">
+              Submit shares your latest draft with the author. You can keep editing afterward, and the author will only see changes after your next submit.
+            </div>
+          </div>
+          <form action="{{ .ReviewerSubmission.PublicPath }}/submit" method="post">
+            <button class="primary-button" type="submit">Submit feedback</button>
+          </form>
+        </div>
       </div>
 
       {{ if .ActiveReviewChapter.NoteBody.Valid }}
