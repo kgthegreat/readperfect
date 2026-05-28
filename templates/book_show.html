@@ -150,11 +150,17 @@
                 </div>
                 <div class="question-list">
                   {{ range .Chapters }}
-                    <article class="list-item-card submitted-note-card chapter-group-card">
-                      <div class="chapter-group-heading">
-                        <span class="note-type">Chapter</span>
-                        <h3>{{ .Label }}</h3>
-                      </div>
+                    <details class="list-item-card submitted-note-card chapter-group-card chapter-accordion">
+                      <summary class="chapter-accordion-summary">
+                        <div class="chapter-group-heading">
+                          <div class="inline-meta-row">
+                            <span class="note-type">Chapter</span>
+                            {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                          </div>
+                          <h3>{{ .Label }}</h3>
+                        </div>
+                        <span class="muted-meta">{{ len .Pages }} page notes</span>
+                      </summary>
 
                       {{ if .NoteBody.Valid }}
                         <div class="chapter-note-body">
@@ -197,7 +203,10 @@
                           {{ range .Pages }}
                             <article class="nested-note-card">
                               <div class="list-item-head">
-                                <span class="note-type">Page note</span>
+                                <div class="inline-meta-row">
+                                  <span class="note-type">Page note</span>
+                                  {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                                </div>
                                 <span class="muted-meta">Page {{ .PageNumber }}</span>
                               </div>
                               {{ if .AnchorText.Valid }}
@@ -235,7 +244,7 @@
                           {{ end }}
                         </div>
                       {{ end }}
-                    </article>
+                    </details>
                   {{ end }}
                 </div>
               </article>

@@ -1019,6 +1019,38 @@ form {
   gap: 14px;
 }
 
+.chapter-accordion {
+  padding: 0;
+  overflow: hidden;
+}
+
+.chapter-accordion-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.chapter-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+.chapter-accordion-summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.chapter-accordion[open] .chapter-accordion-summary::after {
+  content: "−";
+}
+
 .chapter-group-heading {
   display: flex;
   align-items: baseline;
@@ -1036,12 +1068,17 @@ form {
 .chapter-note-body {
   display: grid;
   gap: 8px;
+  padding-left: 20px;
+  padding-right: 20px;
 }
 
 .chapter-entry-list {
   display: grid;
   gap: 10px;
   padding-left: 18px;
+  margin-left: 20px;
+  margin-right: 20px;
+  margin-bottom: 20px;
   border-left: 2px solid rgba(221, 212, 199, 0.8);
 }
 
