@@ -1280,6 +1280,27 @@ form {
   flex-wrap: wrap;
 }
 
+.inline-meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.edited-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(200, 143, 122, 0.12);
+  border: 1px solid rgba(200, 143, 122, 0.24);
+  color: var(--clay-strong);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
 .inline-disclosure {
   position: relative;
 }
@@ -1300,7 +1321,17 @@ form {
   width: min(460px, 100%);
 }
 
-.chapter-note-disclosure[open] .book-form {
+.chapter-label-disclosure[open] {
+  width: min(360px, 100%);
+}
+
+.page-edit-disclosure[open] {
+  width: min(460px, 100%);
+}
+
+.chapter-note-disclosure[open] .book-form,
+.chapter-label-disclosure[open] .book-form,
+.page-edit-disclosure[open] .book-form {
   margin-top: 12px;
   padding: 16px;
   border-radius: 8px;

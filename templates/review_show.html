@@ -81,7 +81,10 @@
                   {{ range .Chapters }}
                     <article class="list-item-card submitted-note-card chapter-group-card">
                       <div class="chapter-group-heading">
-                        <span class="note-type">Chapter</span>
+                        <div class="inline-meta-row">
+                          <span class="note-type">Chapter</span>
+                          {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                        </div>
                         <h3>{{ .Label }}</h3>
                       </div>
                       {{ if .NoteBody.Valid }}
@@ -115,7 +118,10 @@
                           {{ range .Pages }}
                             <article class="nested-note-card">
                               <div class="list-item-head">
-                                <span class="note-type">Page note</span>
+                                <div class="inline-meta-row">
+                                  <span class="note-type">Page note</span>
+                                  {{ if .IsEdited }}<span class="edited-pill">edited</span>{{ end }}
+                                </div>
                                 <span class="muted-meta">Page {{ .PageNumber }}</span>
                               </div>
                               {{ if .AnchorText.Valid }}
@@ -215,6 +221,22 @@
           <p class="eyebrow">Current chapter</p>
           <div class="chapter-title-row">
             <h2>{{ .ActiveReviewChapter.Label }}</h2>
+            <details class="inline-disclosure chapter-label-disclosure" {{ if eq .EditingChapterID .ActiveReviewChapter.ID }}open{{ end }}>
+              <summary>Edit chapter title</summary>
+              <form class="book-form compact-note-form"
+                    action="/review-chapters/{{ .ActiveReviewChapter.ID }}/label"
+                    method="post"
+                    novalidate>
+                <div class="field-stack">
+                  <label for="chapter-label-{{ .ActiveReviewChapter.ID }}">Chapter title</label>
+                  <input id="chapter-label-{{ .ActiveReviewChapter.ID }}" name="chapter_label" type="text" value="{{ if eq .EditingChapterID .ActiveReviewChapter.ID }}{{ index .Form "edit_chapter_label" }}{{ else }}{{ .ActiveReviewChapter.Label }}{{ end }}">
+                  {{ with index .Errors "edit_chapter_label" }}<p class="field-error">{{ . }}</p>{{ end }}
+                </div>
+                <div class="form-actions compact-actions">
+                  <button class="secondary-button compact-primary" type="submit">Save title</button>
+                </div>
+              </form>
+            </details>
             <details class="inline-disclosure chapter-note-disclosure" {{ if index .Errors "chapter_note" }}open{{ end }}>
               <summary>{{ if .ActiveReviewChapter.NoteBody.Valid }}Edit chapter note{{ else }}Add chapter note{{ end }}</summary>
               <form class="book-form compact-note-form"
@@ -301,7 +323,33 @@
             {{ range .ActiveReviewChapter.Pages }}
               <article class="nested-note-card page-note-card">
                 <div class="list-item-head">
-                  <span class="note-type">Page note</span>
+                  <div class="inline-meta-row">
+                    <span class="note-type">Page note</span>
+                    <details class="inline-disclosure page-edit-disclosure" {{ if eq $.EditingPageID .ID }}open{{ end }}>
+                      <summary>Edit</summary>
+                      <form class="book-form compact-note-form" action="/review-pages/{{ .ID }}/edit" method="post" novalidate>
+                        <div class="field-grid page-note-grid">
+                          <div class="field-stack compact-number-field">
+                            <label for="edit-page-number-{{ .ID }}">Page number</label>
+                            <input id="edit-page-number-{{ .ID }}" name="page_number" type="text" value="{{ if eq $.EditingPageID .ID }}{{ index $.Form "edit_page_number" }}{{ else }}{{ .PageNumber }}{{ end }}">
+                            {{ with index $.Errors "edit_page_number" }}<p class="field-error">{{ . }}</p>{{ end }}
+                          </div>
+                          <div class="field-stack">
+                            <label for="edit-page-anchor-{{ .ID }}">Quoted line <span class="optional-copy">optional</span></label>
+                            <input id="edit-page-anchor-{{ .ID }}" name="anchor_text" type="text" value="{{ if eq $.EditingPageID .ID }}{{ index $.Form "edit_page_anchor_text" }}{{ else if .AnchorText.Valid }}{{ .AnchorText.String }}{{ end }}">
+                          </div>
+                        </div>
+                        <div class="field-stack">
+                          <label for="edit-page-note-{{ .ID }}">Page note</label>
+                          <textarea id="edit-page-note-{{ .ID }}" name="comment_body" rows="4">{{ if eq $.EditingPageID .ID }}{{ index $.Form "edit_page_comment_body" }}{{ else }}{{ .CommentBody }}{{ end }}</textarea>
+                          {{ with index $.Errors "edit_page_note" }}<p class="field-error">{{ . }}</p>{{ end }}
+                        </div>
+                        <div class="form-actions compact-actions">
+                          <button class="secondary-button compact-primary" type="submit">Save changes</button>
+                        </div>
+                      </form>
+                    </details>
+                  </div>
                   <span class="muted-meta">Page {{ .PageNumber }}</span>
                 </div>
                 {{ if .AnchorText.Valid }}
