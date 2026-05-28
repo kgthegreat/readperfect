@@ -1362,11 +1362,21 @@ form {
 
 .tooltip-wrap {
   position: relative;
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
+}
+
+.tooltip-wrap summary {
+  list-style: none;
+}
+
+.tooltip-wrap summary::-webkit-details-marker {
+  display: none;
 }
 
 .tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: 1px solid rgba(221, 212, 199, 0.9);
@@ -1379,6 +1389,7 @@ form {
   cursor: help;
 }
 
+.tooltip-wrap[open] .tooltip-trigger,
 .tooltip-trigger:hover,
 .tooltip-trigger:focus-visible {
   border-color: rgba(127, 152, 142, 0.4);
@@ -1406,10 +1417,19 @@ form {
   z-index: 10;
 }
 
-.tooltip-wrap:hover .tooltip-bubble,
-.tooltip-trigger:focus-visible + .tooltip-bubble {
+.tooltip-wrap[open] .tooltip-bubble {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tooltip-wrap:hover .tooltip-bubble,
+  .tooltip-trigger:focus-visible + .tooltip-bubble {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
 }
 
 .chapter-note-disclosure[open] {
